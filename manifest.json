@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Bilibili Lite Player",
+  "version": "0.1.0",
+  "description": "用輕量化播放器替換 B 站原生播放器。",
+  "permissions": ["scripting", "activeTab"],
+  "host_permissions": [
+    "https://www.bilibili.com/*",
+    "https://api.bilibili.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.bilibili.com/*"],
+      "js": ["js/content.js"],
+      "run_at": "document_idle",
+      "type": "module"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "js/*"
+      ],
+      "matches": ["https://www.bilibili.com/*"]
+    }
+  ]
+}
