@@ -44,9 +44,13 @@ export class CDNOptimizer {    constructor() {
         }
 
         // 處理 mcdn 域名的特殊情況
-        if (videoUrl.includes('.mcdn.bilivideo')) {
-            console.log('[CDN] 檢測到 mcdn 域名，使用代理');
-            return `https://proxy-tf-all-ws.bilivideo.com/?url=${encodeURIComponent(videoUrl)}`;
+        if (videoUrl.includes('.mcdn.bilivideo') || 
+            videoUrl.includes('.mcdn.bilivideo.cn') || 
+            videoUrl.includes('.mcdn.bilivideo.com')) {
+            console.log('[CDN] 檢測到 mcdn 域名:', videoUrl);
+            const proxyUrl = `https://proxy-tf-all-ws.bilivideo.com/?url=${encodeURIComponent(videoUrl)}`;
+            console.log('[CDN] 使用代理:', proxyUrl);
+            return proxyUrl;
         }
 
         // 處理 upgcxcode 路徑，替換為優選 CDN (Pilipala 風格)

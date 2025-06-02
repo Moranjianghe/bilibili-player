@@ -1,6 +1,6 @@
 // player.js - 處理播放器的實現和相關功能
 import { qualityMap, audioQualityMap, cdnOptimizer } from './api.js';
-import { StreamMonitor, extractCDNInfo, formatBytes, formatBitrate } from './utils.js';
+import { StreamMonitor, formatBytes, formatBitrate } from './utils.js';
 import { CDNOptimizer } from './cdn.js';
 
 let streamMonitor = null;
@@ -196,179 +196,184 @@ function replacePlayer(playInfo, mainReload) {
         }
     }
 
-console.log('[LitePlayer] 創建新播放器容器完成');
+    console.log('[LitePlayer] 創建新播放器容器完成');
 
-if (playInfo.dash) {
-    // 雙流同步播放方案
-    const dash = playInfo.rawDash;
-    const videoUrl = dash.video[0]?.baseUrl || dash.video[0]?.base_url;
-    const audioUrl = dash.audio[0]?.baseUrl || dash.audio[0]?.base_url;        // video
-    const video = document.createElement('video');
-    video.src = videoUrl;
-    video.controls = true;
-    video.style.width = '100%';
-    video.style.height = '100%';
-    video.autoplay = true;
-    video.preload = 'auto';
-    // 播放優化設置
-    video.crossOrigin = 'anonymous';
-    video.playsInline = true;
-    // 提高緩衝區設置
-    video.setAttribute('webkit-playsinline', '');
-    video.setAttribute('x5-video-player-type', 'h5');
-    video.setAttribute('x5-video-player-fullscreen', 'true');
+    if (playInfo.dash) {
+        // 雙流同步播放方案
+        const dash = playInfo.rawDash;
+        const videoUrl = dash.video[0]?.baseUrl || dash.video[0]?.base_url;
+        const audioUrl = dash.audio[0]?.baseUrl || dash.audio[0]?.base_url;
 
-    // 添加錯誤處理
-    video.onerror = (e) => {
-        console.error('[LitePlayer] 視頻加載失敗:', e);
-        // 顯示錯誤信息
-        const errorDiv = document.createElement('div');
-        errorDiv.style.position = 'absolute';
-        errorDiv.style.top = '50%';
-        errorDiv.style.left = '50%';
-        errorDiv.style.transform = 'translate(-50%, -50%)';
-        errorDiv.style.color = 'white';
-        errorDiv.style.background = 'rgba(0,0,0,0.8)';
-        errorDiv.style.padding = '20px';
-        errorDiv.style.borderRadius = '8px';
-        errorDiv.innerHTML = '視頻加載失敗，請嘗試刷新頁面或切換畫質';
-        newPlayer.appendChild(errorDiv);
-    };
-    // audio
-    const audio = document.createElement('audio');
-    audio.src = audioUrl;
-    audio.preload = 'auto';
-    audio.style.display = 'none';
-    // 播放優化設置
-    audio.crossOrigin = 'anonymous';
+        // 添加 CDN 優化
+        const optimizedVideoUrl = cdnOptimizer.optimizeVideoUrl(videoUrl);
+        const optimizedAudioUrl = cdnOptimizer.optimizeVideoUrl(audioUrl);
 
-    // 添加音頻錯誤處理
-    audio.onerror = (e) => {
-        console.error('[LitePlayer] 音頻加載失敗:', e);
-    };
-    // 加載動畫元素
-    const loading = document.createElement('div');
-    loading.id = 'bilibili-lite-loading';
-    loading.style.position = 'absolute';
-    loading.style.left = '0';
-    loading.style.top = '0';
-    loading.style.width = '100%';
-    loading.style.height = '100%';
-    loading.style.display = 'none';
-    loading.style.justifyContent = 'center';
-    loading.style.alignItems = 'center';
-    loading.style.background = 'rgba(0,0,0,0.3)';
-    loading.innerHTML = `<div style="width:48px;height:48px;border:6px solid #fff;border-top:6px solid #00a1d6;border-radius:50%;animation:spin 1s linear infinite;"></div>`;
-    newPlayer.appendChild(loading);
-    // 加入動畫樣式
-    const style = document.createElement('style');
-    style.innerHTML = `@keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
-    document.head.appendChild(style);        // 控制同步
-    function syncAudio() {
-        const diff = video.currentTime - audio.currentTime;
-        // 允許 0.2 秒以內的誤差
-        if (Math.abs(diff) > 0.2) {
-            // 僅在視頻播放時同步，暫停時不動
-            if (!video.paused && !audio.seeking && !video.seeking) {
-                // 避免頻繁設置 currentTime，僅當差距較大時強制同步
-                audio.currentTime = video.currentTime;
-                // 若音頻暫停則自動播放
-                if (audio.paused) audio.play();
-            }
-        }
-        // 音量、倍速等同步
-        if (audio.playbackRate !== video.playbackRate) audio.playbackRate = video.playbackRate;
-        if (audio.volume !== video.volume) audio.volume = video.volume;
-        if (audio.muted !== video.muted) audio.muted = video.muted;
-    }
+        const video = document.createElement('video');
+        video.src = optimizedVideoUrl;
+        video.controls = true;
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.autoplay = true;
+        video.preload = 'auto';
+        // 播放優化設置
+        video.crossOrigin = 'anonymous';
+        video.playsInline = true;
+        // 提高緩衝區設置
+        video.setAttribute('webkit-playsinline', '');
+        video.setAttribute('x5-video-player-type', 'h5');
+        video.setAttribute('x5-video-player-fullscreen', 'true');
 
-    // 使用跟蹤式事件監聽器添加，防止內存洩漏
-    const playHandler = () => { audio.play(); };
-    const pauseHandler = () => { audio.pause(); };
-    const seekingHandler = () => { audio.currentTime = video.currentTime; };
-    const rateChangeHandler = () => { audio.playbackRate = video.playbackRate; };
-    const volumeChangeHandler = () => { audio.volume = video.volume; audio.muted = video.muted; };
+        // 添加錯誤處理
+        video.onerror = (e) => {
+            console.error('[LitePlayer] 視頻加載失敗:', e);
+            // 顯示錯誤信息
+            const errorDiv = document.createElement('div');
+            errorDiv.style.position = 'absolute';
+            errorDiv.style.top = '50%';
+            errorDiv.style.left = '50%';
+            errorDiv.style.transform = 'translate(-50%, -50%)';
+            errorDiv.style.color = 'white';
+            errorDiv.style.background = 'rgba(0,0,0,0.8)';
+            errorDiv.style.padding = '20px';
+            errorDiv.style.borderRadius = '8px';
+            errorDiv.innerHTML = '視頻加載失敗，請嘗試刷新頁面或切換畫質';
+            newPlayer.appendChild(errorDiv);
+        };
+        // audio
+        const audio = document.createElement('audio');
+        audio.src = optimizedAudioUrl;
+        audio.preload = 'auto';
+        audio.style.display = 'none';
+        // 播放優化設置
+        audio.crossOrigin = 'anonymous';
 
-    addTrackedEventListener(video, 'play', playHandler, 'video');
-    addTrackedEventListener(video, 'pause', pauseHandler, 'video');
-    addTrackedEventListener(video, 'seeking', seekingHandler, 'video');
-    addTrackedEventListener(video, 'ratechange', rateChangeHandler, 'video');
-    addTrackedEventListener(video, 'volumechange', volumeChangeHandler, 'video');
-    addTrackedEventListener(video, 'timeupdate', syncAudio, 'video');        // 保存同步處理器引用以便清理
-    playerEventHandlers.syncHandlers.push(syncAudio, playHandler, pauseHandler, seekingHandler, rateChangeHandler, volumeChangeHandler);
-
-    // loading 檢查
-    function setLoading(show) {
-        loading.style.display = show ? 'flex' : 'none';
-    }
-
-    function checkBuffering() {
-        const videoBufferedTime = video.buffered.length > 0
-            ? video.buffered.end(video.buffered.length - 1) - video.currentTime
-            : 0;
-        const audioBufferedTime = audio.buffered.length > 0
-            ? audio.buffered.end(audio.buffered.length - 1) - audio.currentTime
-            : 0;
-        //else {
-        //    setLoading(false);
-            // 移除自動恢復播放邏輯，讓用戶自行點擊播放按鈕
-        //    console.log('[LitePlayer] Buffer is ready. User can resume playback manually.', {
-        //        videoBufferedTime,
-        //        audioBufferedTime,
-        //        videoReadyState: video.readyState,
-        //        audioReadyState: audio.readyState
-        //    });
-        //}
-    }
-
-    // 使用跟蹤式事件監聽器，防止內存洩漏
-    addTrackedEventListener(video, 'waiting', checkBuffering, 'video');
-    addTrackedEventListener(audio, 'waiting', checkBuffering, 'audio');
-    addTrackedEventListener(video, 'seeking', checkBuffering, 'video');
-    addTrackedEventListener(audio, 'seeking', checkBuffering, 'audio');
-    addTrackedEventListener(video, 'playing', checkBuffering, 'video');
-    addTrackedEventListener(audio, 'playing', checkBuffering, 'audio');
-    addTrackedEventListener(video, 'canplay', checkBuffering, 'video');
-    addTrackedEventListener(audio, 'canplay', checkBuffering, 'audio');
-    addTrackedEventListener(video, 'canplaythrough', checkBuffering, 'video');
-    addTrackedEventListener(audio, 'canplaythrough', checkBuffering, 'audio');
-    // 保存緩衝處理器引用
-    playerEventHandlers.syncHandlers.push(setLoading, checkBuffering);
-
-    // 初始檢查
-    setTimeout(checkBuffering, 100);
-
-    // 插入
-    newPlayer.appendChild(video);
-    newPlayer.appendChild(audio);
-    // 啟動流監控
-    if (streamMonitor) {
-        streamMonitor.stopMonitoring();
-    }
-    streamMonitor = new StreamMonitor();
-    streamMonitor.startMonitoring(video, audio);
-    // 啟動播放優化器
-
-    // 創建控制區
-    createControlBar(playInfo, mainReload, streamMonitor);
-    console.log('[LitePlayer] 已插入雙流同步播放器', { videoUrl, audioUrl });
-}
-
-// 播放器創建完成後的清理工作
-setTimeout(() => {
-    // 隱藏載入動畫
-    const loading = document.getElementById('bilibili-lite-loading');
-    if (loading) {
+        // 添加音頻錯誤處理
+        audio.onerror = (e) => {
+            console.error('[LitePlayer] 音頻加載失敗:', e);
+        };
+        // 加載動畫元素
+        const loading = document.createElement('div');
+        loading.id = 'bilibili-lite-loading';
+        loading.style.position = 'absolute';
+        loading.style.left = '0';
+        loading.style.top = '0';
+        loading.style.width = '100%';
+        loading.style.height = '100%';
         loading.style.display = 'none';
+        loading.style.justifyContent = 'center';
+        loading.style.alignItems = 'center';
+        loading.style.background = 'rgba(0,0,0,0.3)';
+        loading.innerHTML = `<div style="width:48px;height:48px;border:6px solid #fff;border-top:6px solid #00a1d6;border-radius:50%;animation:spin 1s linear infinite;"></div>`;
+        newPlayer.appendChild(loading);
+        // 加入動畫樣式
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
+        document.head.appendChild(style);        // 控制同步
+        function syncAudio() {
+            const diff = video.currentTime - audio.currentTime;
+            // 允許 0.2 秒以內的誤差
+            if (Math.abs(diff) > 0.2) {
+                // 僅在視頻播放時同步，暫停時不動
+                if (!video.paused && !audio.seeking && !video.seeking) {
+                    // 避免頻繁設置 currentTime，僅當差距較大時強制同步
+                    audio.currentTime = video.currentTime;
+                    // 若音頻暫停則自動播放
+                    if (audio.paused) audio.play();
+                }
+            }
+            // 音量、倍速等同步
+            if (audio.playbackRate !== video.playbackRate) audio.playbackRate = video.playbackRate;
+            if (audio.volume !== video.volume) audio.volume = video.volume;
+            if (audio.muted !== video.muted) audio.muted = video.muted;
+        }
+
+        // 使用跟蹤式事件監聽器添加，防止內存洩漏
+        const playHandler = () => { audio.play(); };
+        const pauseHandler = () => { audio.pause(); };
+        const seekingHandler = () => { audio.currentTime = video.currentTime; };
+        const rateChangeHandler = () => { audio.playbackRate = video.playbackRate; };
+        const volumeChangeHandler = () => { audio.volume = video.volume; audio.muted = video.muted; };
+
+        addTrackedEventListener(video, 'play', playHandler, 'video');
+        addTrackedEventListener(video, 'pause', pauseHandler, 'video');
+        addTrackedEventListener(video, 'seeking', seekingHandler, 'video');
+        addTrackedEventListener(video, 'ratechange', rateChangeHandler, 'video');
+        addTrackedEventListener(video, 'volumechange', volumeChangeHandler, 'video');
+        addTrackedEventListener(video, 'timeupdate', syncAudio, 'video');        // 保存同步處理器引用以便清理
+        playerEventHandlers.syncHandlers.push(syncAudio, playHandler, pauseHandler, seekingHandler, rateChangeHandler, volumeChangeHandler);
+
+        // loading 檢查
+        function setLoading(show) {
+            loading.style.display = show ? 'flex' : 'none';
+        }
+
+        function checkBuffering() {
+            const videoBufferedTime = video.buffered.length > 0
+                ? video.buffered.end(video.buffered.length - 1) - video.currentTime
+                : 0;
+            const audioBufferedTime = audio.buffered.length > 0
+                ? audio.buffered.end(audio.buffered.length - 1) - audio.currentTime
+                : 0;
+            //else {
+            //    setLoading(false);
+            // 移除自動恢復播放邏輯，讓用戶自行點擊播放按鈕
+            //    console.log('[LitePlayer] Buffer is ready. User can resume playback manually.', {
+            //        videoBufferedTime,
+            //        audioBufferedTime,
+            //        videoReadyState: video.readyState,
+            //        audioReadyState: audio.readyState
+            //    });
+            //}
+        }
+
+        // 使用跟蹤式事件監聽器，防止內存洩漏
+        addTrackedEventListener(video, 'waiting', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'waiting', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'seeking', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'seeking', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'playing', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'playing', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'canplay', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'canplay', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'canplaythrough', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'canplaythrough', checkBuffering, 'audio');
+        // 保存緩衝處理器引用
+        playerEventHandlers.syncHandlers.push(setLoading, checkBuffering);
+
+        // 初始檢查
+        setTimeout(checkBuffering, 100);
+
+        // 插入
+        newPlayer.appendChild(video);
+        newPlayer.appendChild(audio);
+        // 啟動流監控
+        if (streamMonitor) {
+            streamMonitor.stopMonitoring();
+        }
+        streamMonitor = new StreamMonitor();
+        streamMonitor.startMonitoring(video, audio);
+        // 啟動播放優化器
+
+        // 創建控制區
+        createControlBar(playInfo, mainReload, streamMonitor);
+        console.log('[LitePlayer] 已插入雙流同步播放器', { optimizedVideoUrl, optimizedAudioUrl });
     }
 
-    // 重新啟用所有控制器
-    const selects = document.querySelectorAll('#bilibili-lite-controlbar select');
-    selects.forEach(select => {
-        select.disabled = false;
-    });
-    console.log('[LitePlayer] 播放器初始化完成，控制器已啟用');
-}, 1000);
+    // 播放器創建完成後的清理工作
+    setTimeout(() => {
+        // 隱藏載入動畫
+        const loading = document.getElementById('bilibili-lite-loading');
+        if (loading) {
+            loading.style.display = 'none';
+        }
+
+        // 重新啟用所有控制器
+        const selects = document.querySelectorAll('#bilibili-lite-controlbar select');
+        selects.forEach(select => {
+            select.disabled = false;
+        });
+        console.log('[LitePlayer] 播放器初始化完成，控制器已啟用');
+    }, 1000);
 }
 // 創建控制欄
 function createControlBar(playInfo, mainReload, monitor = null) {
@@ -715,16 +720,14 @@ function createStreamInfoPanel(controlBar, playInfo, monitor) {
         // 視頻信息
         if (playInfo.videoInfo) {
             const vInfo = playInfo.videoInfo;
-            const cdnInfo = extractCDNInfo(playInfo.videoUrl || '');
 
             videoDetails.innerHTML = `
                 <div style="margin-bottom: 8px;"><strong>編碼格式:</strong> <span style="color: #1890ff;">${vInfo.codec || 'N/A'}</span></div>
                 <div style="margin-bottom: 8px;"><strong>解析度:</strong> <span style="color: #1890ff;">${vInfo.width || 'N/A'}x${vInfo.height || 'N/A'}</span></div>
                 <div style="margin-bottom: 8px;"><strong>幀率:</strong> <span style="color: #1890ff;">${vInfo.frameRate || 'N/A'} fps</span></div>
                 <div style="margin-bottom: 8px;"><strong>碼率:</strong> <span style="color: #1890ff;">${formatBitrate(vInfo.bandwidth || 0)}</span></div>
-                <div style="margin-bottom: 8px;"><strong>文件大小:</strong> <span style="color: #1890ff;">${formatBytes(vInfo.size || 0)}</span></div>
-                <div style="margin-bottom: 8px;"><strong>MIME類型:</strong> <span style="color: #666; font-family: monospace; font-size: 11px;">${vInfo.mimeType || 'N/A'}</span></div>
-                <div><strong>CDN節點:</strong> <span style="color: #fa8c16; font-weight: bold;">${cdnInfo.cdn}</span> <span style="color: #666; font-size: 11px;">(${cdnInfo.host})</span></div>
+                <div style="margin-bottom: 8px;"><strong>文件大小:</strong> <span style="color: #1890ff;">${formatBytes(vInfo.size || 0)}</span></div>                <div style="margin-bottom: 8px;"><strong>MIME類型:</strong> <span style="color: #666; font-family: monospace; font-size: 11px;">${vInfo.mimeType || 'N/A'}</span></div>
+                <div><strong>CDN節點:</strong> <span style="color: #fa8c16; font-weight: bold; word-break: break-all; max-width: 300px; display: inline-block;">${video.src || 'N/A'}</span></div>
                 <div style="margin-top: 8px; border-top: 1px solid #e1e3e6; padding-top: 8px;">
                     <strong>緩存信息:</strong>
                     <div style="color: #333; font-size: 12px; margin-top: 4px;">
@@ -740,16 +743,13 @@ function createStreamInfoPanel(controlBar, playInfo, monitor) {
         // 音頻信息
         if (playInfo.audioInfo) {
             const aInfo = playInfo.audioInfo;
-            const cdnInfo = extractCDNInfo(playInfo.audioUrl || '');
-
             audioDetails.innerHTML = `
                 <div style="margin-bottom: 8px;"><strong>編碼格式:</strong> <span style="color: #52c41a;">${aInfo.codec || 'N/A'}</span></div>
                 <div style="margin-bottom: 8px;"><strong>聲道:</strong> <span style="color: #52c41a;">${aInfo.channels || 'N/A'}</span></div>
                 <div style="margin-bottom: 8px;"><strong>採樣率:</strong> <span style="color: #52c41a;">${aInfo.sampleRate || 'N/A'} Hz</span></div>
                 <div style="margin-bottom: 8px;"><strong>碼率:</strong> <span style="color: #52c41a;">${formatBitrate(aInfo.bandwidth || 0)}</span></div>
-                <div style="margin-bottom: 8px;"><strong>文件大小:</strong> <span style="color: #52c41a;">${formatBytes(aInfo.size || 0)}</span></div>
-                <div style="margin-bottom: 8px;"><strong>MIME類型:</strong> <span style="color: #666; font-family: monospace; font-size: 11px;">${aInfo.mimeType || 'N/A'}</span></div>
-                <div><strong>CDN節點:</strong> <span style="color: #fa8c16; font-weight: bold;">${cdnInfo.cdn}</span> <span style="color: #666; font-size: 11px;">(${cdnInfo.host})</span></div>
+                <div style="margin-bottom: 8px;"><strong>文件大小:</strong> <span style="color: #52c41a;">${formatBytes(aInfo.size || 0)}</span></div>                <div style="margin-bottom: 8px;"><strong>MIME類型:</strong> <span style="color: #666; font-family: monospace; font-size: 11px;">${aInfo.mimeType || 'N/A'}</span></div>
+                <div><strong>CDN節點:</strong> <span style="color: #fa8c16; font-weight: bold; word-break: break-all; max-width: 300px; display: inline-block;">${audio.src || 'N/A'}</span></div>
                 <div style="margin-top: 8px; border-top: 1px solid #e1e3e6; padding-top: 8px;">
                     <strong>緩存信息:</strong>
                     <div style="color: #333; font-size: 12px; margin-top: 4px;">
