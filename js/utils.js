@@ -67,9 +67,24 @@ function extractCDNInfo(url) {
         const urlObj = new URL(url);
         const host = urlObj.hostname;
         
+        // CDN 名稱映射
+        const cdnNameMap = {
+            'upos-sz-mirrorali.bilivideo.com': '阿里雲',
+            'upos-sz-mirrorcos.bilivideo.com': '騰訊雲',
+            'upos-sz-mirrorhw.bilivideo.com': '華為雲',
+            'upos-sz-mirrorws.bilivideo.com': '網宿',
+            'upos-sz-mirrorbda2.bilivideo.com': '百度雲'
+        };
+        
         // 根據域名判斷 CDN 提供商
         let cdn = 'unknown';
-        if (host.includes('bilivideo.com') || host.includes('hdslb.com')) {
+        
+        // 先檢查是否是已知的 CDN 節點
+        if (cdnNameMap[host]) {
+            cdn = cdnNameMap[host];
+        }
+        // 否則根據域名特徵判斷
+        else if (host.includes('bilivideo.com') || host.includes('hdslb.com')) {
             cdn = 'Bilibili CDN';
         } else if (host.includes('acgvideo.com')) {
             cdn = 'Bilibili ACG CDN';

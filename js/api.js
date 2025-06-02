@@ -100,8 +100,7 @@ async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null, userFnval =
                     audioStream = a;
                     audioUrl = a.baseUrl || a.base_url;
                 }
-            }
-            // CDN 優化處理
+            }            // CDN 優化處理 (與 Pilipala 一致，同時優化視頻和音頻流)
             const backupVideoUrl = videoStream?.backupUrl || videoStream?.backup_url;
             const backupAudioUrl = audioStream?.backupUrl || audioStream?.backup_url;
             // 優化視頻和音頻 URL

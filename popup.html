@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Bilibili Lite Player 設定</title>
-  <style>
+  <title>Bilibili Lite Player 設定</title>  <style>
     body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fff; color: #222; min-width: 260px; }
     h2 { font-size: 16px; margin: 0 0 12px 0; }
     .section { margin-bottom: 18px; }
@@ -13,6 +12,13 @@
     .status { color: #52c41a; font-size: 13px; margin-top: 8px; }
     button { padding: 4px 12px; border-radius: 4px; border: 1px solid #aaa; background: #f5f5f5; cursor: pointer; }
     button:active { background: #e6f7ff; }
+    .current-cdn { color: #fa8c16; font-weight: bold; }    .cdn-settings { margin-bottom: 12px; }
+    .cdn-checkbox-container { display: flex; align-items: center; margin-bottom: 10px; }
+    .cdn-checkbox-label { display: flex; align-items: center; cursor: pointer; }
+    .cdn-checkbox-label span { margin-left: 6px; }
+    .cdn-select-container { margin-top: 5px; }
+    .cdn-select { padding: 4px; width: 100%; margin-top: 5px; border-radius: 4px; border: 1px solid #ccc; }
+    .cdn-status-container { margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -20,11 +26,38 @@
   <div class="section">
     <div>優先格式 (fnval)：</div>
     <div class="fnval-group" id="fnval-group"></div>
+  </div>  <!-- CDN 設置區域 -->
+  <div class="section">
+    <div>CDN 設置：</div>
+    <div class="cdn-settings">
+      <div class="cdn-checkbox-container">
+        <label class="cdn-checkbox-label">
+          <input type="checkbox" id="cdn-enable-checkbox">
+          <span>啟用 CDN 優化</span>
+        </label>
+      </div>      <div class="cdn-select-container">
+        <label for="cdn-select">選擇 CDN 節點：</label>
+        <select id="cdn-select" title="選擇 CDN 節點" class="cdn-select">
+          <option value="ali">阿里雲 (推薦)</option>
+          <option value="cos">騰訊雲</option>
+          <option value="hw">華為雲</option>
+          <option value="ws">網宿</option>
+          <option value="bda2">百度雲</option>
+        </select>
+        <div class="cdn-hint" style="color: #999; font-size: 12px; margin-top: 4px;">
+          提示：阿里雲 CDN 一般提供較好的穩定性
+        </div>
+      </div>
+      <div class="cdn-status-container">
+        <div>當前使用的 CDN：</div>
+        <div id="current-cdn" class="current-cdn">自動選擇</div>
+      </div>
+    </div>
   </div>
   <div class="section">
     <div>優先編碼 (codec)：</div>
     <div class="codec-group">
-      <select id="codec-select">
+      <select id="codec-select" title="選擇優先編碼">
         <option value="">自動</option>
         <option value="avc">H.264/AVC</option>
         <option value="hevc">HEVC/H.265</option>

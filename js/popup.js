@@ -84,3 +84,90 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.disabled = true;
 }
+
+// CDN 設置相關邏輯
+const currentCdnDisplay = document.getElementById('current-cdn');
+const cdnEnableCheckbox = document.getElementById('cdn-enable-checkbox');
+const cdnSelect = document.getElementById('cdn-select');
+
+// 初始化 CDN 設置
+const cdnEnabled = localStorage.getItem('enableCdn') !== 'false'; // 默認啟用
+// 默認使用阿里雲，與 Pilipala 保持一致
+const preferredCdn = localStorage.getItem('preferredCdn') || 'ali';
+
+// 設置界面元素初始狀態
+if (cdnEnableCheckbox) {
+  cdnEnableCheckbox.checked = cdnEnabled;
+}
+
+if (cdnSelect) {
+  cdnSelect.value = preferredCdn;
+  cdnSelect.disabled = !cdnEnabled;
+}
+
+if (currentCdnDisplay) {
+  if (cdnEnabled) {
+    const cdnName = getCdnDisplayName(preferredCdn);
+    currentCdnDisplay.textContent = cdnName;
+  } else {
+    currentCdnDisplay.textContent = '未啟用';
+    currentCdnDisplay.style.color = '#999';
+  }
+}
+
+// CDN 啟用狀態變更
+cdnEnableCheckbox.addEventListener('change', () => {
+  const enabled = cdnEnableCheckbox.checked;
+  localStorage.setItem('enableCdn', enabled);
+  cdnSelect.disabled = !enabled;
+  
+  if (enabled) {
+    const cdnName = getCdnDisplayName(cdnSelect.value);
+    currentCdnDisplay.textContent = cdnName;
+    currentCdnDisplay.style.color = '#fa8c16';
+  } else {
+    currentCdnDisplay.textContent = '未啟用';
+    currentCdnDisplay.style.color = '#999';
+  }
+});
+
+// CDN 選擇變更
+cdnSelect.addEventListener('change', () => {
+  const selectedCdn = cdnSelect.value;
+  localStorage.setItem('preferredCdn', selectedCdn);
+  
+  if (cdnEnableCheckbox.checked) {
+    const cdnName = getCdnDisplayName(selectedCdn);
+    currentCdnDisplay.textContent = cdnName;
+  }
+});
+
+// 保存按鈕點擊時也保存 CDN 設置
+if (saveBtn) {
+  const originalOnClick = saveBtn.onclick;
+  saveBtn.onclick = function() {
+    if (originalOnClick) {
+      originalOnClick.call(this);
+    }
+    
+    // 保存 CDN 設置
+    localStorage.setItem('enableCdn', cdnEnableCheckbox.checked);
+    localStorage.setItem('preferredCdn', cdnSelect.value);
+    
+    // 更新顯示
+    statusDiv.textContent += '，CDN 設置已保存';
+  };
+}
+
+// 獲取 CDN 顯示名稱
+function getCdnDisplayName(cdnKey) {
+  const cdnNames = {
+    'ali': '阿里雲 (推薦)',
+    'cos': '騰訊雲',
+    'hw': '華為雲',
+    'ws': '網宿',
+    'bda2': '百度雲'
+  };
+  
+  return cdnNames[cdnKey] || '阿里雲 (推薦)';
+}
