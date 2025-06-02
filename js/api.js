@@ -48,27 +48,20 @@ async function fetchCid(bvid) {
 }
 
 // 取得視頻流，優先 dash
-async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null) {
+async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null, userFnval = null, userCodec = null) {
     // 根據畫質設置不同的 fnval 參數
-    let fnval = 16; // 基礎DASH格式
-    
-    // 為高級畫質添加相應的fnval標誌
-    if (qn === 125) {
-        fnval |= 64; // HDR視頻
-    } else if (qn === 120) {
-        fnval |= 128; // 4K分辨率
-    } else if (qn === 126) {
-        fnval |= 512; // 杜比視界
-    } else if (qn === 127) {
-        fnval |= 1024; // 8K分辨率
+    let fnval = userFnval !== null ? userFnval : 16; // 基礎DASH格式
+    // 若未自訂，則根據 qn 自動補齊
+    if (userFnval === null) {
+        if (qn === 125) fnval |= 64; // HDR
+        else if (qn === 120) fnval |= 128; // 4K
+        else if (qn === 126) fnval |= 512; // 杜比視界
+        else if (qn === 127) fnval |= 1024; // 8K
+        fnval |= 256; // 杜比音頻
+        fnval |= 2048; // AV1
     }
-    
-    // 添加杜比音頻和AV1編碼支援
-    fnval |= 256; // 杜比音頻
-    fnval |= 2048; // AV1編碼
-    
     const api = `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=${qn}&fnval=${fnval}&fourk=1`;
-    console.log('[LitePlayer] 請求API:', api, `(qn=${qn}, fnval=${fnval})`);
+    console.log('[LitePlayer] 請求API:', api, `(qn=${qn}, fnval=${fnval}, codec=${userCodec||''})`);
     try {
         const res = await fetch(api, {
             credentials: 'include',
@@ -86,12 +79,18 @@ async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null) {
             let videoStream = dash.video[0];
             let videoUrl = videoStream?.baseUrl || videoStream?.base_url;
             if (qn && dash.video) {
-                const v = dash.video.find(v => v.id === qn);
+                // codec 選擇
+                let filtered = dash.video;
+                if (userCodec) {
+                    filtered = dash.video.filter(v => (v.codecs||'').toLowerCase().includes(userCodec));
+                }
+                const v = filtered.find(v => v.id === qn) || dash.video.find(v => v.id === qn);
                 if (v) {
                     videoStream = v;
                     videoUrl = v.baseUrl || v.base_url;
                 }
-            }            // 音質
+            }
+            // 音質
             let audioStream = dash.audio[0];
             let audioUrl = audioStream?.baseUrl || audioStream?.base_url;
             let audioList = dash.audio;
@@ -102,18 +101,12 @@ async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null) {
                     audioUrl = a.baseUrl || a.base_url;
                 }
             }
-            
             // CDN 優化處理
             const backupVideoUrl = videoStream?.backupUrl || videoStream?.backup_url;
             const backupAudioUrl = audioStream?.backupUrl || audioStream?.backup_url;
-            
             // 優化視頻和音頻 URL
             const optimizedVideoUrl = cdnOptimizer.optimizeVideoUrl(videoUrl, backupVideoUrl);
             const optimizedAudioUrl = cdnOptimizer.optimizeVideoUrl(audioUrl, backupAudioUrl);
-            
-            console.log('[CDN] 視頻 URL 優化:', videoUrl, '->', optimizedVideoUrl);
-            console.log('[CDN] 音頻 URL 優化:', audioUrl, '->', optimizedAudioUrl);
-            
             // 提取流信息
             const videoInfo = {
                 codec: videoStream?.codecs || 'unknown',
@@ -124,47 +117,45 @@ async function fetchPlayUrl(bvid, cid, qn = 80, audioQuality = null) {
                 size: videoStream?.size || 0,
                 mimeType: videoStream?.mimeType || videoStream?.mime_type || 'unknown'
             };
-            
             const audioInfo = {
                 codec: audioStream?.codecs || 'unknown',
                 bandwidth: audioStream?.bandwidth || 0,
                 size: audioStream?.size || 0,
                 mimeType: audioStream?.mimeType || audioStream?.mime_type || 'unknown'
             };
-            
             // 收集可用畫質/音質
             const acceptQn = data.data.accept_quality || [qn];
             const acceptAudio = dash.audio.map(a => a.id);
-              return { 
-                dash: true, 
+            return {
+                dash: true,
                 videoUrl: optimizedVideoUrl,
                 audioUrl: optimizedAudioUrl,
                 originalVideoUrl: videoUrl,
                 originalAudioUrl: audioUrl,
-                rawDash: dash, 
-                acceptQn, 
-                qn, 
-                acceptAudio, 
+                rawDash: dash,
+                acceptQn,
+                qn,
+                acceptAudio,
                 audioQuality,
                 videoInfo,
                 audioInfo,
                 videoStream,
                 audioStream
             };
-        }        // 回退 durl
+        }
+        // 回退 durl
         if (data.data && data.data.durl && data.data.durl[0]) {
             const originalUrl = data.data.durl[0].url;
             const optimizedUrl = cdnOptimizer.optimizeVideoUrl(originalUrl);
-            console.log('[CDN] durl URL 優化:', originalUrl, '->', optimizedUrl);
-            
-            return { 
-                dash: false, 
+            return {
+                dash: false,
                 videoUrl: optimizedUrl,
                 originalVideoUrl: originalUrl,
-                acceptQn: data.data.accept_quality || [qn], 
-                qn 
+                acceptQn: data.data.accept_quality || [qn],
+                qn
             };
-        }return null;
+        }
+        return null;
     } catch (error) {
         console.error('[LitePlayer] API請求失敗:', error);
         return null;

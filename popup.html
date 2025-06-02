@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Bilibili Lite Player 設定</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fff; color: #222; min-width: 260px; }
+    h2 { font-size: 16px; margin: 0 0 12px 0; }
+    .section { margin-bottom: 18px; }
+    label { margin-right: 10px; font-size: 14px; }
+    .fnval-group { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .codec-group { margin-bottom: 8px; }
+    .status { color: #52c41a; font-size: 13px; margin-top: 8px; }
+    button { padding: 4px 12px; border-radius: 4px; border: 1px solid #aaa; background: #f5f5f5; cursor: pointer; }
+    button:active { background: #e6f7ff; }
+  </style>
+</head>
+<body>
+  <h2>播放器格式設定</h2>
+  <div class="section">
+    <div>優先格式 (fnval)：</div>
+    <div class="fnval-group" id="fnval-group"></div>
+  </div>
+  <div class="section">
+    <div>優先編碼 (codec)：</div>
+    <div class="codec-group">
+      <select id="codec-select">
+        <option value="">自動</option>
+        <option value="avc">H.264/AVC</option>
+        <option value="hevc">HEVC/H.265</option>
+        <option value="av1">AV1</option>
+      </select>
+    </div>
+  </div>
+  <button id="save-btn">保存設定</button>
+  <div class="status" id="status"></div>
+  <script src="js/popup-debug.js"></script>
+  <script src="js/popup.js"></script>
+</body>
+</html>

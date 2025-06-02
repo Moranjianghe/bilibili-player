@@ -1,16 +1,9 @@
 // player.js - 處理播放器的實現和相關功能
 import { qualityMap, audioQualityMap, cdnOptimizer } from './api.js';
 import { StreamMonitor, extractCDNInfo, formatBytes, formatBitrate } from './utils.js';
-import { MediaPreloader } from './preloader.js';
-import { PlaybackOptimizer } from './playback-optimizer.js';
-import { QuickFixes } from './quick-fixes.js';
-import { AdaptiveQuality } from './adaptive-quality.js';
 
 let streamMonitor = null;
-let mediaPreloader = null;
 let playbackOptimizer = null;
-let quickFixes = null;
-let adaptiveQuality = null;
 
 // 全局變量存儲播放器事件監聽器引用，用於內存洩漏防護
 let playerEventHandlers = {
@@ -48,12 +41,6 @@ function cleanupPlayerEventListeners() {
         if (playerEventHandlers.syncHandlers.length > 0) {
             console.log(`[LitePlayer] 清理了 ${playerEventHandlers.syncHandlers.length} 個同步處理器引用`);
         }
-    }
-    
-    // 清理 QuickFixes 事件監聽器
-    if (quickFixes) {
-        quickFixes.destroy();
-        console.log('[LitePlayer] 已清理 QuickFixes 事件監聽器');
     }
     
     // 重置監聽器引用
@@ -339,57 +326,9 @@ function replacePlayer(playInfo, mainReload) {
             streamMonitor.stopMonitoring();
         }
         streamMonitor = new StreamMonitor();
-        streamMonitor.startMonitoring(video, audio);        // 啟動預加載器
-        if (mediaPreloader) {
-            mediaPreloader.destroy();
-        }
-        mediaPreloader = new MediaPreloader();
-        mediaPreloader.initialize(video, audio, videoUrl, audioUrl);
-          // 啟動播放優化器
-        if (playbackOptimizer) {
-            playbackOptimizer.stop();
-        }
-        playbackOptimizer = new PlaybackOptimizer();
-        playbackOptimizer.initialize(video, audio, {
-            buffer: {
-                targetDuration: 30,
-                maxDuration: 60,
-                minDuration: 5,
-                rebufferGoal: 8
-            },
-            adaptive: {
-                enabled: true,
-                speedTest: true,
-                qualityAdjust: true
-            }        });
-          // 應用快速修復
-        if (!quickFixes) {
-            quickFixes = new QuickFixes();
-            quickFixes.applyAllFixes();
-        } else {
-            // 重新應用快速修復（因為可能已經被清理）
-            if (!quickFixes.isApplied) {
-                quickFixes.applyAllFixes();
-            }
-        }
-        
-        // 啟動自適應畫質調整
-        if (adaptiveQuality) {
-            adaptiveQuality.stop();
-        }
-        adaptiveQuality = new AdaptiveQuality();
-        const currentQuality = playInfo.quality || 80; // 默認 1080P
-        adaptiveQuality.start(currentQuality, (newQuality) => {
-            console.log('[自適應畫質] 建議切換畫質:', newQuality);
-            // 觸發畫質變更事件
-            const event = new CustomEvent('qualityChangeRequest', {
-                detail: { quality: newQuality, reason: 'adaptive' }
-            });
-            document.dispatchEvent(event);
-        });
-        
-        // 創建控制區
-        createControlBar(playInfo, mainReload, streamMonitor, mediaPreloader, playbackOptimizer, adaptiveQuality);
+        streamMonitor.startMonitoring(video, audio);        // 啟動播放優化器
+          // 創建控制區
+        createControlBar(playInfo, mainReload, streamMonitor);
         console.log('[LitePlayer] 已插入雙流同步播放器', { videoUrl, audioUrl });} else {        // 普通 durl
         const video = document.createElement('video');
         video.src = playInfo.videoUrl;
@@ -410,45 +349,14 @@ function replacePlayer(playInfo, mainReload) {
             streamMonitor.stopMonitoring();
         }
         streamMonitor = new StreamMonitor();
-        streamMonitor.startMonitoring(video, null);        // 啟動預加載器（僅視頻）
-        if (mediaPreloader) {
-            mediaPreloader.destroy();
-        }
-        mediaPreloader = new MediaPreloader();
-        mediaPreloader.initialize(video, null, playInfo.videoUrl, null);
-          // 啟動播放優化器（僅視頻）
+        streamMonitor.startMonitoring(video, null);        // 啟動播放優化器（僅視頻）
         if (playbackOptimizer) {
             playbackOptimizer.stop();
         }
         playbackOptimizer = new PlaybackOptimizer();        playbackOptimizer.initialize(video, null);
-          // 應用快速修復
-        if (!quickFixes) {
-            quickFixes = new QuickFixes();
-            quickFixes.applyAllFixes();
-        } else {
-            // 重新應用快速修復（因為可能已經被清理）
-            if (!quickFixes.isApplied) {
-                quickFixes.applyAllFixes();
-            }
-        }
-        
-        // 啟動自適應畫質調整
-        if (adaptiveQuality) {
-            adaptiveQuality.stop();
-        }
-        adaptiveQuality = new AdaptiveQuality();
-        const currentQuality = playInfo.quality || 80; // 默認 1080P
-        adaptiveQuality.start(currentQuality, (newQuality) => {
-            console.log('[自適應畫質] 建議切換畫質:', newQuality);
-            // 觸發畫質變更事件
-            const event = new CustomEvent('qualityChangeRequest', {
-                detail: { quality: newQuality, reason: 'adaptive' }
-            });
-            document.dispatchEvent(event);
-        });
         
         // 創建控制區
-        createControlBar(playInfo, mainReload, streamMonitor, mediaPreloader, playbackOptimizer, adaptiveQuality);
+        createControlBar(playInfo, mainReload, streamMonitor);
         console.log('[LitePlayer] 已插入自製播放器, 視頻URL:', playInfo.videoUrl);
     }
     
@@ -471,7 +379,7 @@ function replacePlayer(playInfo, mainReload) {
 }
 
 // 創建控制欄
-function createControlBar(playInfo, mainReload, monitor = null, preloader = null, optimizer = null) {
+function createControlBar(playInfo, mainReload, monitor = null) {
     // 查找 arc_toolbar_report
     const arcToolbar = document.getElementById('arc_toolbar_report');
     const newPlayer = document.getElementById('bilibili-lite-player');
@@ -509,57 +417,76 @@ function createControlBar(playInfo, mainReload, monitor = null, preloader = null
         qnSelect.style.padding = '4px 8px';
         qnSelect.style.borderRadius = '4px';
         qnSelect.style.border = '1px solid #ccc';
-          (playInfo.acceptQn || [playInfo.qn]).forEach(qn => {
+        (playInfo.acceptQn || [playInfo.qn]).forEach(qn => {
             const opt = document.createElement('option');
             opt.value = qn;
-            
-            // 根據畫質添加會員標記
             let displayText = qualityMap[qn] || qn;
             if (qn >= 100 && qn <= 127) {
                 displayText += ' (大會員)';
             } else if (qn === 74) {
                 displayText += ' (登錄)';
             }
-            
             opt.textContent = displayText;
             if (qn === playInfo.qn) opt.selected = true;
             qnSelect.appendChild(opt);
         });
-        
         // 僅聲音模式
         const audioOnlyOpt = document.createElement('option');
         audioOnlyOpt.value = 0;
         audioOnlyOpt.textContent = '僅播放聲音';
         if (playInfo.qn === 0) audioOnlyOpt.selected = true;
         qnSelect.appendChild(audioOnlyOpt);
-        
         // 畫質切換事件處理
         qnSelect.onchange = async (e) => {
             const val = parseInt(e.target.value);
-            console.log('[LitePlayer] 畫質切換到:', val);
-            
-            // 顯示載入中狀態
-            const loading = document.getElementById('bilibili-lite-loading');
-            if (loading) {
-                loading.style.display = 'flex';
+            // 取得當前 fnval/codec
+            const fnval = parseInt(localStorage.getItem('bilibili-lite-fnval') || '16');
+            const codec = localStorage.getItem('bilibili-lite-codec') || '';
+            localStorage.setItem('bilibili-lite-fnval', fnval);
+            localStorage.setItem('bilibili-lite-codec', codec);
+            console.log('[LitePlayer] 畫質切換到:', val, 'fnval:', fnval, 'codec:', codec);
+            setTimeout(() => {
+                mainReload(val, playInfo.audioQuality, fnval, codec);
+            }, 300);
+        };
+        // 顯示 fnval/codec 狀態
+        function showFnvalCodecStatus(statusDiv) {
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.get(['bilibili-lite-fnval', 'bilibili-lite-codec'], (result) => {
+                    const fnval = result['bilibili-lite-fnval'] !== undefined ? parseInt(result['bilibili-lite-fnval']) : 16;
+                    const codec = result['bilibili-lite-codec'] || '';
+                    let fnvalText = [];
+                    if (fnval & 16) fnvalText.push('DASH');
+                    if (fnval & 64) fnvalText.push('HDR');
+                    if (fnval & 128) fnvalText.push('4K');
+                    if (fnval & 256) fnvalText.push('杜比音頻');
+                    if (fnval & 512) fnvalText.push('杜比視界');
+                    if (fnval & 1024) fnvalText.push('8K');
+                    if (fnval & 2048) fnvalText.push('AV1');
+                    statusDiv.textContent = `格式: ${fnvalText.join('+') || 'DASH'}，編碼: ${codec || '自動'}（請點插件圖標設定）`;
+                });
+            } else {
+                // fallback
+                const fnval = parseInt(localStorage.getItem('bilibili-lite-fnval') || '16');
+                const codec = localStorage.getItem('bilibili-lite-codec') || '';
+                let fnvalText = [];
+                if (fnval & 16) fnvalText.push('DASH');
+                if (fnval & 64) fnvalText.push('HDR');
+                if (fnval & 128) fnvalText.push('4K');
+                if (fnval & 256) fnvalText.push('杜比音頻');
+                if (fnval & 512) fnvalText.push('杜比視界');
+                if (fnval & 1024) fnvalText.push('8K');
+                if (fnval & 2048) fnvalText.push('AV1');
+                statusDiv.textContent = `格式: ${fnvalText.join('+') || 'DASH'}，編碼: ${codec || '自動'}（請點插件圖標設定）`;
             }
-            
-            // 禁用選擇器防止重複點擊
-            qnSelect.disabled = true;
-              try {
-                // 延遲執行以避免同步問題，與 CDN 切換保持一致
-                setTimeout(() => {
-                    mainReload(val, playInfo.audioQuality);
-                }, 300);
-            } catch (error) {
-                console.error('[LitePlayer] 畫質切換失敗:', error);
-                // 恢復選擇器
-                qnSelect.disabled = false;
-                if (loading) {
-                    loading.style.display = 'none';
-                }
-            }        };
+        }
+        const statusDiv = document.createElement('div');
+        statusDiv.style.fontSize = '12px';
+        statusDiv.style.color = '#888';
+        statusDiv.style.marginLeft = '12px';
+        showFnvalCodecStatus(statusDiv);
         qnGroup.appendChild(qnSelect);
+        qnGroup.appendChild(statusDiv);
         controlRow.appendChild(qnGroup);
         
         // 音質切換（下拉選擇器）
@@ -619,19 +546,6 @@ function createControlBar(playInfo, mainReload, monitor = null, preloader = null
         qnSelect.addEventListener('click', e => e.stopPropagation());
           // 將控制行添加到控制欄
         controlBar.appendChild(controlRow);
-          // 添加預加載控制面板
-        if (preloader) {
-            createPreloadControlPanel(controlBar, preloader);
-        }
-          // 添加播放優化控制面板
-        if (optimizer) {
-            createOptimizerControlPanel(controlBar, optimizer);
-        }
-        
-        // 添加自適應畫質控制面板
-        if (arguments[5]) { // adaptiveQuality 參數
-            createAdaptiveQualityPanel(controlBar, arguments[5]);
-        }
         
         // 創建流信息顯示區域
         createStreamInfoPanel(controlBar, playInfo, monitor);
@@ -1154,6 +1068,36 @@ function createPreloadControlPanel(controlBar, preloader) {
     videoDurationRow.appendChild(videoDurationSlider);
     videoDurationRow.appendChild(videoDurationValue);
     
+    // 視頻緩衝區最大值設置
+    const videoCacheRow = document.createElement('div');
+    videoCacheRow.style.display = 'flex';
+    videoCacheRow.style.alignItems = 'center';
+    videoCacheRow.style.gap = '8px';
+    videoCacheRow.style.fontSize = '12px';
+    const videoCacheLabel = document.createElement('span');
+    videoCacheLabel.textContent = '緩衝區上限:';
+    videoCacheLabel.style.minWidth = '70px';
+    const videoCacheInput = document.createElement('input');
+    videoCacheInput.type = 'number';
+    videoCacheInput.min = 10;
+    videoCacheInput.max = 1024;
+    videoCacheInput.value = Math.round(preloader.config.video.maxCacheSize / 1024 / 1024);
+    videoCacheInput.style.width = '60px';
+    const videoCacheUnit = document.createElement('span');
+    videoCacheUnit.textContent = 'MB';
+    videoCacheRow.appendChild(videoCacheLabel);
+    videoCacheRow.appendChild(videoCacheInput);
+    videoCacheRow.appendChild(videoCacheUnit);
+    videoControls.appendChild(videoCacheRow);
+    videoCacheInput.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value);
+        if (isNaN(val) || val < 10) val = 10;
+        if (val > 1024) val = 1024;
+        videoCacheInput.value = val;
+        preloader.setConfig({ videoMaxCacheSize: val * 1024 * 1024 });
+        console.log('[預加載設置] 視頻緩衝區上限:', val + 'MB');
+    });
+    
     videoControls.appendChild(videoEnabledRow);
     videoControls.appendChild(videoDurationRow);
     videoControlCol.appendChild(videoTitle);
@@ -1227,6 +1171,36 @@ function createPreloadControlPanel(controlBar, preloader) {
     audioDurationRow.appendChild(audioDurationSlider);
     audioDurationRow.appendChild(audioDurationValue);
     
+    // 音頻緩衝區最大值設置
+    const audioCacheRow = document.createElement('div');
+    audioCacheRow.style.display = 'flex';
+    audioCacheRow.style.alignItems = 'center';
+    audioCacheRow.style.gap = '8px';
+    audioCacheRow.style.fontSize = '12px';
+    const audioCacheLabel = document.createElement('span');
+    audioCacheLabel.textContent = '緩衝區上限:';
+    audioCacheLabel.style.minWidth = '70px';
+    const audioCacheInput = document.createElement('input');
+    audioCacheInput.type = 'number';
+    audioCacheInput.min = 1;
+    audioCacheInput.max = 100;
+    audioCacheInput.value = Math.round(preloader.config.audio.maxCacheSize / 1024 / 1024);
+    audioCacheInput.style.width = '60px';
+    const audioCacheUnit = document.createElement('span');
+    audioCacheUnit.textContent = 'MB';
+    audioCacheRow.appendChild(audioCacheLabel);
+    audioCacheRow.appendChild(audioCacheInput);
+    audioCacheRow.appendChild(audioCacheUnit);
+    audioControls.appendChild(audioCacheRow);
+    audioCacheInput.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > 100) val = 100;
+        audioCacheInput.value = val;
+        preloader.setConfig({ audioMaxCacheSize: val * 1024 * 1024 });
+        console.log('[預加載設置] 音頻緩衝區上限:', val + 'MB');
+    });
+    
     audioControls.appendChild(audioEnabledRow);
     audioControls.appendChild(audioDurationRow);
     audioControlCol.appendChild(audioTitle);
@@ -1261,157 +1235,6 @@ function createPreloadControlPanel(controlBar, preloader) {
     statsArea.appendChild(statsContent);
     contentArea.appendChild(controlGrid);
     
-    // 實時性能監控區域
-    const performanceMonitorArea = document.createElement('div');
-    performanceMonitorArea.style.cssText = `
-        margin-top: 16px;
-        padding: 12px;
-        background: #f6ffed;
-        border-radius: 4px;
-        border: 1px solid #b7eb8f;
-    `;
-
-    const monitorTitle = document.createElement('h4');
-    monitorTitle.textContent = '🚀 實時性能監控';
-    monitorTitle.style.cssText = `
-        margin: 0 0 12px 0;
-        color: #52c41a;
-        font-size: 14px;
-        font-weight: bold;
-    `;
-
-    const monitorGrid = document.createElement('div');
-    monitorGrid.style.cssText = `
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 12px;
-        margin-bottom: 12px;
-    `;
-
-    // 下載速度監控
-    const speedCard = document.createElement('div');
-    speedCard.style.cssText = `
-        padding: 8px;
-        background: #fff;
-        border-radius: 4px;
-        border: 1px solid #d9f7be;
-        text-align: center;
-    `;
-
-    const speedTitle = document.createElement('div');
-    speedTitle.textContent = '下載速度';
-    speedTitle.style.cssText = `
-        font-size: 11px;
-        color: #666;
-        margin-bottom: 4px;
-    `;
-
-    const speedValue = document.createElement('div');
-    speedValue.id = 'thread-download-speed';
-    speedValue.textContent = '0 MB/s';
-    speedValue.style.cssText = `
-        font-size: 14px;
-        font-weight: bold;
-        color: #52c41a;
-    `;
-
-    speedCard.appendChild(speedTitle);
-    speedCard.appendChild(speedValue);
-
-    // 活躍線程監控
-    const threadsCard = document.createElement('div');
-    threadsCard.style.cssText = `
-        padding: 8px;
-        background: #fff;
-        border-radius: 4px;
-        border: 1px solid #d9f7be;
-        text-align: center;
-    `;
-
-    const threadsTitle = document.createElement('div');
-    threadsTitle.textContent = '活躍線程';
-    threadsTitle.style.cssText = `
-        font-size: 11px;
-        color: #666;
-        margin-bottom: 4px;
-    `;
-
-    const threadsValue = document.createElement('div');
-    threadsValue.id = 'active-threads';
-    threadsValue.textContent = '0/0';
-    threadsValue.style.cssText = `
-        font-size: 14px;
-        font-weight: bold;
-        color: #1890ff;
-    `;
-
-    threadsCard.appendChild(threadsTitle);
-    threadsCard.appendChild(threadsValue);
-
-    // 緩存效率監控
-    const efficiencyCard = document.createElement('div');
-    efficiencyCard.style.cssText = `
-        padding: 8px;
-        background: #fff;
-        border-radius: 4px;
-        border: 1px solid #d9f7be;
-        text-align: center;
-    `;
-
-    const efficiencyTitle = document.createElement('div');
-    efficiencyTitle.textContent = '緩存效率';
-    efficiencyTitle.style.cssText = `
-        font-size: 11px;
-        color: #666;
-        margin-bottom: 4px;
-    `;
-
-    const efficiencyValue = document.createElement('div');
-    efficiencyValue.id = 'cache-efficiency';
-    efficiencyValue.textContent = '0%';
-    efficiencyValue.style.cssText = `
-        font-size: 14px;
-        font-weight: bold;
-        color: #722ed1;
-    `;
-
-    efficiencyCard.appendChild(efficiencyTitle);
-    efficiencyCard.appendChild(efficiencyValue);
-
-    monitorGrid.appendChild(speedCard);
-    monitorGrid.appendChild(threadsCard);
-    monitorGrid.appendChild(efficiencyCard);
-
-    // 性能提示區域
-    const tipsArea = document.createElement('div');
-    tipsArea.style.cssText = `
-        font-size: 11px;
-        color: #666;
-        line-height: 1.4;
-        padding: 8px;
-        background: #fafafa;
-        border-radius: 3px;
-        border-left: 3px solid #52c41a;
-    `;
-
-    const tipsContent = document.createElement('div');
-    tipsContent.id = 'performance-tips';
-    tipsContent.innerHTML = `
-        <div style="margin-bottom: 2px;">💡 <strong>性能提示:</strong></div>
-        <div>• 高速網絡建議使用 8+ 線程和 4MB 段落大小</div>
-        <div>• 慢速網絡建議使用 2-4 線程和 1MB 段落大小</div>
-        <div>• 移動網絡建議啟用省電模式</div>
-    `;
-
-    tipsArea.appendChild(tipsContent);    performanceMonitorArea.appendChild(monitorTitle);
-    performanceMonitorArea.appendChild(monitorGrid);
-    performanceMonitorArea.appendChild(tipsArea);
-      contentArea.appendChild(performanceMonitorArea);
-    contentArea.appendChild(statsArea);
-    
-    // 在這裡我們需要稍後添加 multiThreadRow 和 advancedSettingsArea
-    // 它們將在定義後被添加
-    
     // 組裝面板
     preloadPanel.appendChild(headerBar);
     preloadPanel.appendChild(contentArea);
@@ -1438,10 +1261,12 @@ function createPreloadControlPanel(controlBar, preloader) {
     videoDurationSlider.addEventListener('input', (e) => {
         const value = parseInt(e.target.value);
         videoDurationValue.textContent = `${value}秒`;
+        console.log('[UI] videoDurationSlider input, value =', value, 'preloader=', preloader);
         preloader.setConfig({ videoDuration: value });
         console.log('[預加載設置] 視頻預加載時長:', value + '秒');
     });
-      // 音頻預加載設置事件
+    
+    // 音頻預加載設置事件
     audioEnabledCheckbox.addEventListener('change', (e) => {
         preloader.setConfig({ audioEnabled: e.target.checked });
         console.log('[預加載設置] 音頻預加載:', e.target.checked ? '啟用' : '停用');
@@ -1450,6 +1275,7 @@ function createPreloadControlPanel(controlBar, preloader) {
     audioDurationSlider.addEventListener('input', (e) => {
         const value = parseInt(e.target.value);
         audioDurationValue.textContent = `${value}秒`;
+        console.log('[UI] audioDurationSlider input, value =', value, 'preloader=', preloader);
         preloader.setConfig({ audioDuration: value });
         console.log('[預加載設置] 音頻預加載時長:', value + '秒');
     });
@@ -1685,6 +1511,7 @@ function createPreloadControlPanel(controlBar, preloader) {
         { value: 8 * 1024 * 1024, text: '8MB (極高速)' }
     ];
 
+
     segmentSizeOptions.forEach(option => {
         const optionElement = document.createElement('option');
         optionElement.value = option.value;
@@ -1745,7 +1572,7 @@ function createPreloadControlPanel(controlBar, preloader) {
     const networkTitle = document.createElement('h5');
     networkTitle.textContent = '網絡配置';
     networkTitle.style.cssText = `
-        margin: 0 0 12px 0;
+        margin: 0 0  12px 0;
         color: #495057;
         font-size: 13px;
         font-weight: bold;
@@ -1798,6 +1625,7 @@ function createPreloadControlPanel(controlBar, preloader) {
     retryLabel.textContent = '重試次數:';
     retryLabel.style.minWidth = '55px';
 
+   
     const retrySlider = document.createElement('input');
     retrySlider.type = 'range';
     retrySlider.min = '0';
@@ -1931,207 +1759,6 @@ function createPreloadControlPanel(controlBar, preloader) {
         }
     });
 
-    // 將多線程和高級設置區域添加到內容區域
-    contentArea.appendChild(multiThreadRow);
-    contentArea.appendChild(advancedSettingsArea);
-
-    // 多線程事件處理
-    videoMultiThreadCheckbox.addEventListener('change', (e) => {
-        preloader.setConfig({ videoUseMultiThread: e.target.checked });
-        console.log('[預加載設置] 視頻多線程下載:', e.target.checked ? '啟用' : '停用');
-    });
-
-    videoConcurrentSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        videoConcurrentValue.textContent = value;
-        preloader.setConfig({ videoMaxConcurrentDownloads: value });
-        console.log('[預加載設置] 視頻並發下載數:', value);
-    });
-
-    audioMultiThreadCheckbox.addEventListener('change', (e) => {
-        preloader.setConfig({ audioUseMultiThread: e.target.checked });
-        console.log('[預加載設置] 音頻多線程下載:', e.target.checked ? '啟用' : '停用');
-    });
-
-    audioConcurrentSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        audioConcurrentValue.textContent = value;
-        preloader.setConfig({ audioMaxConcurrentDownloads: value });
-        console.log('[預加載設置] 音頻並發下載數:', value);
-    });
-
-    // 高級設置事件處理
-    segmentSizeSelect.addEventListener('change', (e) => {
-        const value = parseInt(e.target.value);
-        preloader.setConfig({
-            videoSegmentSize: value,
-            audioSegmentSize: value
-        });
-        console.log('[線程配置] 段落大小:', formatBytes(value));
-    });
-
-    threadPoolSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        threadPoolValue.textContent = value;
-        
-        // 同步更新並發數設置
-        videoConcurrentSlider.value = value;
-        videoConcurrentValue.textContent = value;
-        audioConcurrentSlider.value = value;
-        audioConcurrentValue.textContent = value;
-        
-        preloader.setConfig({
-            videoMaxConcurrentDownloads: value,
-            audioMaxConcurrentDownloads: value
-        });
-        console.log('[線程配置] 線程池大小:', value);
-    });
-
-    timeoutSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        timeoutValue.textContent = value + 's';
-        preloader.setConfig({
-            timeout: value * 1000
-        });
-        console.log('[線程配置] 超時時間:', value + '秒');
-    });
-
-    retrySlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        retryValue.textContent = value + '次';
-        preloader.setConfig({
-            retryAttempts: value
-        });
-        console.log('[線程配置] 重試次數:', value + '次');
-    });
-      // 定期更新統計信息
-    const updateStats = () => {
-        const stats = preloader.getStats();
-        
-        // 更新基本統計信息
-        statsContent.innerHTML = `
-            <div>
-                <div style="margin-bottom: 6px;"><strong>視頻預加載:</strong></div>
-                <div style="margin-bottom: 4px; color: #1890ff;">已緩存段落: ${stats.video.cachedSegments}</div>
-                <div style="margin-bottom: 4px; color: #1890ff;">緩存大小: ${formatBytes(stats.video.cacheSize)}</div>
-                <div style="margin-bottom: 4px; color: #1890ff;">預加載時長: ${stats.video.preloadDuration}秒</div>
-                <div style="color: #666;">總請求: ${stats.video.totalRequests}</div>
-            </div>
-            <div>
-                <div style="margin-bottom: 6px;"><strong>音頻預加載:</strong></div>
-                <div style="margin-bottom: 4px; color: #52c41a;">已緩存段落: ${stats.audio.cachedSegments}</div>
-                <div style="margin-bottom: 4px; color: #52c41a;">緩存大小: ${formatBytes(stats.audio.cacheSize)}</div>
-                <div style="margin-bottom: 4px; color: #52c41a;">預加載時長: ${stats.audio.preloadDuration}秒</div>
-                <div style="color: #666;">總請求: ${stats.audio.totalRequests}</div>
-            </div>
-        `;
-
-        // 更新性能監控數據
-        updatePerformanceMonitor(stats);
-    };
-
-    // 性能監控更新函數
-    const updatePerformanceMonitor = (stats) => {
-        // 計算總下載速度 (視頻 + 音頻)
-        const videoSpeed = stats.video.avgDownloadSpeed || 0;
-        const audioSpeed = stats.audio.avgDownloadSpeed || 0;
-        const totalSpeed = videoSpeed + audioSpeed;
-
-        const speedElement = document.getElementById('thread-download-speed');
-        if (speedElement) {
-            speedElement.textContent = (totalSpeed / (1024 * 1024)).toFixed(1) + ' MB/s';
-            // 根據速度設置顏色
-            if (totalSpeed > 5 * 1024 * 1024) { // > 5MB/s
-                speedElement.style.color = '#52c41a';
-            } else if (totalSpeed > 2 * 1024 * 1024) { // > 2MB/s
-                speedElement.style.color = '#1890ff';
-            } else if (totalSpeed > 0.5 * 1024 * 1024) { // > 0.5MB/s
-                speedElement.style.color = '#fa8c16';
-            } else {
-                speedElement.style.color = '#ff4d4f';
-            }
-        }
-
-        // 計算活躍線程數
-        const videoThreads = preloader.config.video.useMultiThread ? preloader.config.video.maxConcurrentDownloads : 0;
-        const audioThreads = preloader.config.audio.useMultiThread ? preloader.config.audio.maxConcurrentDownloads : 0;
-        const maxThreads = Math.max(videoThreads, audioThreads);
-        
-        // 模擬活躍線程計算（基於下載速度）
-        const estimatedActiveThreads = totalSpeed > 0 ? Math.min(maxThreads, Math.ceil(totalSpeed / (1024 * 1024))) : 0;
-
-        const threadsElement = document.getElementById('active-threads');
-        if (threadsElement) {
-            threadsElement.textContent = `${estimatedActiveThreads}/${maxThreads}`;
-            threadsElement.style.color = estimatedActiveThreads > maxThreads * 0.7 ? '#52c41a' : '#1890ff';
-        }
-
-        // 計算緩存效率
-        const totalRequests = stats.video.totalRequests + stats.audio.totalRequests;
-        const totalCacheHits = stats.video.cacheHits + stats.audio.cacheHits;
-        const efficiency = totalRequests > 0 ? ((totalCacheHits / totalRequests) * 100) : 0;
-
-        const efficiencyElement = document.getElementById('cache-efficiency');
-        if (efficiencyElement) {
-            efficiencyElement.textContent = efficiency.toFixed(1) + '%';
-            // 根據效率設置顏色
-            if (efficiency > 80) {
-                efficiencyElement.style.color = '#52c41a';
-            } else if (efficiency > 60) {
-                efficiencyElement.style.color = '#1890ff';
-            } else if (efficiency > 40) {
-                efficiencyElement.style.color = '#fa8c16';
-            } else {
-                efficiencyElement.style.color = '#ff4d4f';
-            }
-        }
-
-        // 動態更新性能提示
-        const tipsElement = document.getElementById('performance-tips');
-        if (tipsElement && totalSpeed > 0) {
-            let tips = '<div style="margin-bottom: 2px;">💡 <strong>性能提示:</strong></div>';
-            
-            if (totalSpeed < 1024 * 1024) { // < 1MB/s
-                tips += '<div>⚠️ 下載速度較慢，建議降低並發數或段落大小</div>';
-                tips += '<div>🔧 可嘗試切換到省電模式或標準模式</div>';
-            } else if (totalSpeed > 10 * 1024 * 1024) { // > 10MB/s
-                tips += '<div>🚀 網絡條件優秀，可考慮使用極速模式</div>';
-                tips += '<div>⚡ 建議增加線程數和段落大小以充分利用帶寬</div>';
-            } else {
-                tips += '<div>✅ 網絡狀況良好，當前配置合適</div>';
-                tips += '<div>📊 如需更高速度可嘗試高速模式</div>';
-            }
-
-            if (efficiency < 50) {
-                tips += '<div>🎯 緩存命中率較低，建議增加預加載時長</div>';
-            }
-
-            tipsElement.innerHTML = tips;
-        }
-    };
-      // 初始更新統計信息
-    updateStats();
-    
-    // 每1秒更新一次統計信息和性能監控
-    const statsInterval = setInterval(updateStats, 1000);
-    
-    // 保存配置到本地存儲的函數
-    const saveAdvancedConfig = () => {
-        try {
-            const advancedConfig = {
-                segmentSize: parseInt(segmentSizeSelect.value),
-                timeout: parseInt(timeoutSlider.value) * 1000,
-                retryAttempts: parseInt(retrySlider.value),
-                threadPoolSize: parseInt(threadPoolSlider.value),
-                lastUpdated: Date.now()
-            };
-            localStorage.setItem('bilibili-thread-advanced-config', JSON.stringify(advancedConfig));
-            console.log('[線程配置] 高級配置已保存');
-        } catch (e) {
-            console.warn('[線程配置] 高級配置保存失敗:', e);
-        }
-    };
-
     // 加載保存的高級配置
     const loadAdvancedConfig = () => {
         try {
@@ -2145,13 +1772,28 @@ function createPreloadControlPanel(controlBar, preloader) {
                 retryValue.textContent = retrySlider.value + '次';
                 threadPoolSlider.value = config.threadPoolSize || 8;
                 threadPoolValue.textContent = threadPoolSlider.value;
-                
-                console.log('[線程配置] 高級配置已加載');
+                console.log('[線程配置] 高级配置已加載');
             }
         } catch (e) {
             console.warn('[線程配置] 高級配置加載失敗:', e);
         }
     };
+
+    // 保存高級配置到本地存儲
+    function saveAdvancedConfig() {
+        try {
+            const config = {
+                segmentSize: parseInt(segmentSizeSelect.value),
+                timeout: parseInt(timeoutSlider.value) * 1000,
+                retryAttempts: parseInt(retrySlider.value),
+                threadPoolSize: parseInt(threadPoolSlider.value)
+            };
+            localStorage.setItem('bilibili-thread-advanced-config', JSON.stringify(config));
+            console.log('[線程配置] 高級配置已保存', config);
+        } catch (e) {
+            console.warn('[線程配置] 高級配置保存失敗:', e);
+        }
+    }
 
     // 加載保存的配置
     loadAdvancedConfig();
@@ -2169,757 +1811,4 @@ function createPreloadControlPanel(controlBar, preloader) {
     console.log('[預加載控制面板] 創建完成');
 }
 
-// 創建播放優化控制面板
-function createOptimizerControlPanel(controlBar, optimizer) {
-    // 創建優化器控制面板
-    const optimizerPanel = document.createElement('div');
-    optimizerPanel.id = 'bilibili-lite-optimizer-panel';
-    optimizerPanel.style.marginTop = '12px';
-    optimizerPanel.style.border = '1px solid #d9d9d9';
-    optimizerPanel.style.borderRadius = '6px';
-    optimizerPanel.style.backgroundColor = '#f0f8ff';
-    optimizerPanel.style.overflow = 'hidden';
-    
-    // 創建標題欄
-    const headerBar = document.createElement('div');
-    headerBar.style.padding = '8px 12px';
-    headerBar.style.backgroundColor = '#e6f4ff';
-    headerBar.style.cursor = 'pointer';
-    headerBar.style.display = 'flex';
-    headerBar.style.alignItems = 'center';
-    headerBar.style.justifyContent = 'space-between';
-    headerBar.style.userSelect = 'none';
-    
-    const titleText = document.createElement('span');
-    titleText.textContent = '播放優化';
-    titleText.style.fontWeight = 'bold';
-    titleText.style.color = '#1890ff';
-    
-    const toggleIcon = document.createElement('span');
-    toggleIcon.textContent = '▼';
-    toggleIcon.style.transition = 'transform 0.2s';
-    toggleIcon.style.color = '#666';
-    
-    headerBar.appendChild(titleText);
-    headerBar.appendChild(toggleIcon);
-    
-    // 創建內容區域
-    const contentArea = document.createElement('div');
-    contentArea.style.padding = '12px';
-    contentArea.style.display = 'block';
-    contentArea.style.transition = 'all 0.3s ease';
-    
-    // 創建優化狀態顯示
-    const statusGrid = document.createElement('div');
-    statusGrid.style.display = 'grid';
-    statusGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
-    statusGrid.style.gap = '12px';
-    statusGrid.style.marginBottom = '16px';
-    
-    // 網絡狀態卡片
-    const networkCard = document.createElement('div');
-    networkCard.style.padding = '12px';
-    networkCard.style.backgroundColor = '#fff';
-    networkCard.style.borderRadius = '4px';
-    networkCard.style.border = '1px solid #e1e3e6';
-    networkCard.style.textAlign = 'center';
-    
-    const networkTitle = document.createElement('div');
-    networkTitle.textContent = '網絡狀態';
-    networkTitle.style.fontSize = '12px';
-    networkTitle.style.color = '#666';
-    networkTitle.style.marginBottom = '6px';
-    
-    const networkSpeed = document.createElement('div');
-    networkSpeed.id = 'network-speed';
-    networkSpeed.textContent = '檢測中...';
-    networkSpeed.style.fontSize = '14px';
-    networkSpeed.style.fontWeight = 'bold';
-    networkSpeed.style.color = '#1890ff';
-    
-    networkCard.appendChild(networkTitle);
-    networkCard.appendChild(networkSpeed);
-    
-    // 緩衝狀態卡片
-    const bufferCard = document.createElement('div');
-    bufferCard.style.padding = '12px';
-    bufferCard.style.backgroundColor = '#fff';
-    bufferCard.style.borderRadius = '4px';
-    bufferCard.style.border = '1px solid #e1e3e6';
-    bufferCard.style.textAlign = 'center';
-    
-    const bufferTitle = document.createElement('div');
-    bufferTitle.textContent = '緩衝狀態';
-    bufferTitle.style.fontSize = '12px';
-    bufferTitle.style.color = '#666';
-    bufferTitle.style.marginBottom = '6px';
-    
-    const bufferHealth = document.createElement('div');
-    bufferHealth.id = 'buffer-health';
-    bufferHealth.textContent = '0.0s';
-    bufferHealth.style.fontSize = '14px';
-    bufferHealth.style.fontWeight = 'bold';
-    bufferHealth.style.color = '#52c41a';
-    
-    bufferCard.appendChild(bufferTitle);
-    bufferCard.appendChild(bufferHealth);
-    
-    // 卡頓統計卡片
-    const stallCard = document.createElement('div');
-    stallCard.style.padding = '12px';
-    stallCard.style.backgroundColor = '#fff';
-    stallCard.style.borderRadius = '4px';
-    stallCard.style.border = '1px solid #e1e3e6';
-    stallCard.style.textAlign = 'center';
-    
-    const stallTitle = document.createElement('div');
-    stallTitle.textContent = '卡頓次數';
-    stallTitle.style.fontSize = '12px';
-    stallTitle.style.color = '#666';
-    stallTitle.style.marginBottom = '6px';
-    
-    const stallCount = document.createElement('div');
-    stallCount.id = 'stall-count';
-    stallCount.textContent = '0';
-    stallCount.style.fontSize = '14px';
-    stallCount.style.fontWeight = 'bold';
-    stallCount.style.color = '#ff4d4f';
-    
-    stallCard.appendChild(stallTitle);
-    stallCard.appendChild(stallCount);
-    
-    statusGrid.appendChild(networkCard);
-    statusGrid.appendChild(bufferCard);
-    statusGrid.appendChild(stallCard);
-    
-    // 創建緩衝設置控制
-    const bufferControls = document.createElement('div');
-    bufferControls.style.marginBottom = '16px';
-    bufferControls.style.padding = '12px';
-    bufferControls.style.backgroundColor = '#fff';
-    bufferControls.style.borderRadius = '4px';
-    bufferControls.style.border = '1px solid #e1e3e6';
-    
-    const bufferControlsTitle = document.createElement('h4');
-    bufferControlsTitle.textContent = '緩衝策略';
-    bufferControlsTitle.style.margin = '0 0 12px 0';
-    bufferControlsTitle.style.color = '#1890ff';
-    bufferControlsTitle.style.fontSize = '14px';
-    bufferControlsTitle.style.fontWeight = 'bold';
-    
-    // 目標緩衝時長控制
-    const targetBufferRow = document.createElement('div');
-    targetBufferRow.style.display = 'flex';
-    targetBufferRow.style.alignItems = 'center';
-    targetBufferRow.style.gap = '8px';
-    targetBufferRow.style.marginBottom = '8px';
-    targetBufferRow.style.fontSize = '12px';
-    
-    const targetBufferLabel = document.createElement('span');
-    targetBufferLabel.textContent = '目標緩衝:';
-    targetBufferLabel.style.minWidth = '70px';
-    
-    const targetBufferSlider = document.createElement('input');
-    targetBufferSlider.type = 'range';
-    targetBufferSlider.min = '5';
-    targetBufferSlider.max = '60';
-    targetBufferSlider.value = optimizer.config.buffer.targetDuration;
-    targetBufferSlider.style.flex = '1';
-    
-    const targetBufferValue = document.createElement('span');
-    targetBufferValue.textContent = `${optimizer.config.buffer.targetDuration}秒`;
-    targetBufferValue.style.minWidth = '35px';
-    targetBufferValue.style.color = '#1890ff';
-    targetBufferValue.style.fontWeight = 'bold';
-    
-    targetBufferRow.appendChild(targetBufferLabel);
-    targetBufferRow.appendChild(targetBufferSlider);
-    targetBufferRow.appendChild(targetBufferValue);
-    
-    // 重緩衝目標控制
-    const rebufferRow = document.createElement('div');
-    rebufferRow.style.display = 'flex';
-    rebufferRow.style.alignItems = 'center';
-    rebufferRow.style.gap = '8px';
-    rebufferRow.style.fontSize = '12px';
-    
-    const rebufferLabel = document.createElement('span');
-    rebufferLabel.textContent = '重緩衝目標:';
-    rebufferLabel.style.minWidth = '70px';
-    
-    const rebufferSlider = document.createElement('input');
-    rebufferSlider.type = 'range';
-    rebufferSlider.min = '2';
-    rebufferSlider.max = '15';
-    rebufferSlider.value = optimizer.config.buffer.rebufferGoal;
-    rebufferSlider.style.flex = '1';
-    
-    const rebufferValue = document.createElement('span');
-    rebufferValue.textContent = `${optimizer.config.buffer.rebufferGoal}秒`;
-    rebufferValue.style.minWidth = '35px';
-    rebufferValue.style.color = '#52c41a';
-    rebufferValue.style.fontWeight = 'bold';
-    
-    rebufferRow.appendChild(rebufferLabel);
-    rebufferRow.appendChild(rebufferSlider);
-    rebufferRow.appendChild(rebufferValue);
-    
-    bufferControls.appendChild(bufferControlsTitle);
-    bufferControls.appendChild(targetBufferRow);
-    bufferControls.appendChild(rebufferRow);
-    
-    // 自適應設置
-    const adaptiveControls = document.createElement('div');
-    adaptiveControls.style.padding = '12px';
-    adaptiveControls.style.backgroundColor = '#fff';
-    adaptiveControls.style.borderRadius = '4px';
-    adaptiveControls.style.border = '1px solid #e1e3e6';
-    
-    const adaptiveTitle = document.createElement('h4');
-    adaptiveTitle.textContent = '自適應優化';
-    adaptiveTitle.style.margin = '0 0 12px 0';
-    adaptiveTitle.style.color = '#52c41a';
-    adaptiveTitle.style.fontSize = '14px';
-    adaptiveTitle.style.fontWeight = 'bold';
-    
-    // 自適應開關
-    const adaptiveEnabledRow = document.createElement('div');
-    adaptiveEnabledRow.style.display = 'flex';
-    adaptiveEnabledRow.style.alignItems = 'center';
-    adaptiveEnabledRow.style.gap = '16px';
-    adaptiveEnabledRow.style.fontSize = '12px';
-    
-    const adaptiveEnabledLabel = document.createElement('label');
-    adaptiveEnabledLabel.style.display = 'flex';
-    adaptiveEnabledLabel.style.alignItems = 'center';
-    adaptiveEnabledLabel.style.cursor = 'pointer';
-    
-    const adaptiveEnabledCheckbox = document.createElement('input');
-    adaptiveEnabledCheckbox.type = 'checkbox';
-    adaptiveEnabledCheckbox.checked = optimizer.config.adaptive.enabled;
-    adaptiveEnabledCheckbox.style.marginRight = '6px';
-    
-    adaptiveEnabledLabel.appendChild(adaptiveEnabledCheckbox);
-    adaptiveEnabledLabel.appendChild(document.createTextNode('啟用自適應優化'));
-    
-    // 速度測試開關
-    const speedTestLabel = document.createElement('label');
-    speedTestLabel.style.display = 'flex';
-    speedTestLabel.style.alignItems = 'center';
-    speedTestLabel.style.cursor = 'pointer';
-    
-    const speedTestCheckbox = document.createElement('input');
-    speedTestCheckbox.type = 'checkbox';
-    speedTestCheckbox.checked = optimizer.config.adaptive.speedTest;
-    speedTestCheckbox.style.marginRight = '6px';
-    
-    speedTestLabel.appendChild(speedTestCheckbox);
-    speedTestLabel.appendChild(document.createTextNode('自動速度測試'));
-    
-    adaptiveEnabledRow.appendChild(adaptiveEnabledLabel);
-    adaptiveEnabledRow.appendChild(speedTestLabel);
-    
-    adaptiveControls.appendChild(adaptiveTitle);
-    adaptiveControls.appendChild(adaptiveEnabledRow);
-    
-    contentArea.appendChild(statusGrid);
-    contentArea.appendChild(bufferControls);
-    contentArea.appendChild(adaptiveControls);
-    
-    // 組裝面板
-    optimizerPanel.appendChild(headerBar);
-    optimizerPanel.appendChild(contentArea);
-    
-    // 事件處理
-    let isCollapsed = false;
-    headerBar.addEventListener('click', () => {
-        isCollapsed = !isCollapsed;
-        if (isCollapsed) {
-            contentArea.style.display = 'none';
-            toggleIcon.style.transform = 'rotate(-90deg)';
-        } else {
-            contentArea.style.display = 'block';
-            toggleIcon.style.transform = 'rotate(0deg)';
-        }
-    });
-    
-    // 緩衝設置事件
-    targetBufferSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        targetBufferValue.textContent = `${value}秒`;
-        optimizer.config.buffer.targetDuration = value;
-        console.log('[播放優化] 目標緩衝時長:', value + '秒');
-    });
-    
-    rebufferSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        rebufferValue.textContent = `${value}秒`;
-        optimizer.config.buffer.rebufferGoal = value;
-        console.log('[播放優化] 重緩衝目標:', value + '秒');
-    });
-    
-    // 自適應設置事件
-    adaptiveEnabledCheckbox.addEventListener('change', (e) => {
-        optimizer.config.adaptive.enabled = e.target.checked;
-        console.log('[播放優化] 自適應優化:', e.target.checked ? '啟用' : '停用');
-    });
-    
-    speedTestCheckbox.addEventListener('change', (e) => {
-        optimizer.config.adaptive.speedTest = e.target.checked;
-        console.log('[播放優化] 自動速度測試:', e.target.checked ? '啟用' : '停用');
-    });
-    
-    // 定期更新狀態
-    const updateStatus = () => {
-        const stats = optimizer.getStats();
-        
-        // 更新網絡速度
-        const speedElement = document.getElementById('network-speed');
-        if (speedElement) {
-            const speed = stats.networkSpeed;
-            if (speed > 0) {
-                speedElement.textContent = speed.toFixed(1) + ' Mbps';
-                speedElement.style.color = speed > 2 ? '#52c41a' : speed > 1 ? '#fa8c16' : '#ff4d4f';
-            } else {
-                speedElement.textContent = '檢測中...';
-                speedElement.style.color = '#666';
-            }
-        }
-        
-        // 更新緩衝健康度
-        const bufferElement = document.getElementById('buffer-health');
-        if (bufferElement) {
-            const buffer = stats.bufferHealth;
-            bufferElement.textContent = buffer.toFixed(1) + 's';
-            bufferElement.style.color = buffer > 10 ? '#52c41a' : buffer > 5 ? '#fa8c16' : '#ff4d4f';
-        }
-        
-        // 更新卡頓次數
-        const stallElement = document.getElementById('stall-count');
-        if (stallElement) {
-            stallElement.textContent = stats.stallEvents.toString();
-            stallElement.style.color = stats.stallEvents === 0 ? '#52c41a' : '#ff4d4f';
-        }
-    };
-    
-    // 初始更新狀態
-    updateStatus();
-    
-    // 每秒更新一次狀態
-    const statusInterval = setInterval(updateStatus, 1000);
-    
-    // 將面板添加到控制欄
-    controlBar.appendChild(optimizerPanel);
-    
-    console.log('[播放優化控制面板] 創建完成');
-}
-
-// 創建自適應畫質控制面板
-function createAdaptiveQualityPanel(controlBar, adaptiveQuality) {
-    // 創建自適應畫質控制面板
-    const adaptivePanel = document.createElement('div');
-    adaptivePanel.id = 'bilibili-lite-adaptive-panel';
-    adaptivePanel.style.marginTop = '12px';
-    adaptivePanel.style.border = '1px solid #d9d9d9';
-    adaptivePanel.style.borderRadius = '6px';
-    adaptivePanel.style.backgroundColor = '#fff9e6';
-    adaptivePanel.style.overflow = 'hidden';
-    
-    // 創建標題欄
-    const headerBar = document.createElement('div');
-    headerBar.style.padding = '8px 12px';
-    headerBar.style.backgroundColor = '#fff2cc';
-    headerBar.style.cursor = 'pointer';
-    headerBar.style.display = 'flex';
-    headerBar.style.alignItems = 'center';
-    headerBar.style.justifyContent = 'space-between';
-    headerBar.style.userSelect = 'none';
-      const titleText = document.createElement('span');
-    titleText.textContent = '自適應畫質';
-    titleText.style.fontWeight = 'bold';
-    titleText.style.color = '#fa8c16';
-    
-    // 創建右側控制區域
-    const rightControls = document.createElement('div');
-    rightControls.style.display = 'flex';
-    rightControls.style.alignItems = 'center';
-    rightControls.style.gap = '8px';
-    
-    // 創建啟用/禁用開關
-    const enableSwitch = document.createElement('label');
-    enableSwitch.style.display = 'flex';
-    enableSwitch.style.alignItems = 'center';
-    enableSwitch.style.gap = '4px';
-    enableSwitch.style.fontSize = '12px';
-    enableSwitch.style.cursor = 'pointer';
-    enableSwitch.style.color = '#666';
-    
-    const enableCheckbox = document.createElement('input');
-    enableCheckbox.type = 'checkbox';
-    enableCheckbox.checked = adaptiveQuality.config.enabled;
-    enableCheckbox.style.margin = '0';
-    
-    const enableLabel = document.createElement('span');
-    enableLabel.textContent = '啟用';
-    
-    enableSwitch.appendChild(enableCheckbox);
-    enableSwitch.appendChild(enableLabel);
-    
-    const toggleIcon = document.createElement('span');
-    toggleIcon.textContent = '▼';
-    toggleIcon.style.transition = 'transform 0.2s';
-    toggleIcon.style.color = '#666';
-    toggleIcon.style.marginLeft = '8px';
-    
-    rightControls.appendChild(enableSwitch);
-    rightControls.appendChild(toggleIcon);
-    
-    headerBar.appendChild(titleText);
-    headerBar.appendChild(rightControls);
-    
-    // 創建內容區域
-    const contentArea = document.createElement('div');
-    contentArea.style.padding = '12px';
-    contentArea.style.display = 'block';
-    contentArea.style.transition = 'all 0.3s ease';
-    
-    // 創建狀態顯示區域
-    const statusGrid = document.createElement('div');
-    statusGrid.style.display = 'grid';
-    statusGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
-    statusGrid.style.gap = '12px';
-    statusGrid.style.marginBottom = '16px';
-    
-    // 當前畫質卡片
-    const qualityCard = document.createElement('div');
-    qualityCard.style.padding = '12px';
-    qualityCard.style.backgroundColor = '#fff';
-    qualityCard.style.borderRadius = '4px';
-    qualityCard.style.border = '1px solid #e1e3e6';
-    qualityCard.style.textAlign = 'center';
-    
-    const qualityTitle = document.createElement('div');
-    qualityTitle.textContent = '當前畫質';
-    qualityTitle.style.fontSize = '12px';
-    qualityTitle.style.color = '#666';
-    qualityTitle.style.marginBottom = '6px';
-    
-    const currentQuality = document.createElement('div');
-    currentQuality.id = 'current-quality';
-    currentQuality.textContent = '1080P';
-    currentQuality.style.fontSize = '14px';
-    currentQuality.style.fontWeight = 'bold';
-    currentQuality.style.color = '#fa8c16';
-    
-    qualityCard.appendChild(qualityTitle);
-    qualityCard.appendChild(currentQuality);
-    
-    // 調整次數卡片
-    const adjustCard = document.createElement('div');
-    adjustCard.style.padding = '12px';
-    adjustCard.style.backgroundColor = '#fff';
-    adjustCard.style.borderRadius = '4px';
-    adjustCard.style.border = '1px solid #e1e3e6';
-    adjustCard.style.textAlign = 'center';
-    
-    const adjustTitle = document.createElement('div');
-    adjustTitle.textContent = '調整次數';
-    adjustTitle.style.fontSize = '12px';
-    adjustTitle.style.color = '#666';
-    adjustTitle.style.marginBottom = '6px';
-    
-    const adjustCount = document.createElement('div');
-    adjustCount.id = 'adjust-count';
-    adjustCount.textContent = '0';
-    adjustCount.style.fontSize = '14px';
-    adjustCount.style.fontWeight = 'bold';
-    adjustCount.style.color = '#52c41a';
-    
-    adjustCard.appendChild(adjustTitle);
-    adjustCard.appendChild(adjustCount);
-    
-    // 自適應狀態卡片
-    const statusCard = document.createElement('div');
-    statusCard.style.padding = '12px';
-    statusCard.style.backgroundColor = '#fff';
-    statusCard.style.borderRadius = '4px';
-    statusCard.style.border = '1px solid #e1e3e6';
-    statusCard.style.textAlign = 'center';
-    
-    const statusTitle = document.createElement('div');
-    statusTitle.textContent = '自適應狀態';
-    statusTitle.style.fontSize = '12px';
-    statusTitle.style.color = '#666';
-    statusTitle.style.marginBottom = '6px';
-    
-    const adaptiveStatus = document.createElement('div');
-    adaptiveStatus.id = 'adaptive-status';
-    adaptiveStatus.textContent = '監控中';
-    adaptiveStatus.style.fontSize = '14px';
-    adaptiveStatus.style.fontWeight = 'bold';
-    adaptiveStatus.style.color = '#52c41a';
-    
-    statusCard.appendChild(statusTitle);
-    statusCard.appendChild(adaptiveStatus);
-    
-    statusGrid.appendChild(qualityCard);
-    statusGrid.appendChild(adjustCard);
-    statusGrid.appendChild(statusCard);
-    
-    // 創建設置控制
-    const settingsArea = document.createElement('div');
-    settingsArea.style.display = 'grid';
-    settingsArea.style.gridTemplateColumns = '1fr 1fr';
-    settingsArea.style.gap = '16px';
-    
-    // 卡頓閾值設置
-    const stallSettings = document.createElement('div');
-    stallSettings.style.padding = '12px';
-    stallSettings.style.backgroundColor = '#fff';
-    stallSettings.style.borderRadius = '4px';
-    stallSettings.style.border = '1px solid #e1e3e6';
-    
-    const stallTitle = document.createElement('h4');
-    stallTitle.textContent = '卡頓閾值';
-    stallTitle.style.margin = '0 0 12px 0';
-    stallTitle.style.color = '#fa8c16';
-    stallTitle.style.fontSize = '14px';
-    stallTitle.style.fontWeight = 'bold';
-    
-    const stallRow = document.createElement('div');
-    stallRow.style.display = 'flex';
-    stallRow.style.alignItems = 'center';
-    stallRow.style.gap = '8px';
-    stallRow.style.fontSize = '12px';
-    
-    const stallLabel = document.createElement('span');
-    stallLabel.textContent = '連續卡頓次數:';
-    stallLabel.style.minWidth = '80px';
-    
-    const stallSlider = document.createElement('input');
-    stallSlider.type = 'range';
-    stallSlider.min = '1';
-    stallSlider.max = '10';
-    stallSlider.value = adaptiveQuality.config.stallThreshold;
-    stallSlider.style.flex = '1';
-    
-    const stallValue = document.createElement('span');
-    stallValue.textContent = `${adaptiveQuality.config.stallThreshold}次`;
-    stallValue.style.minWidth = '30px';
-    stallValue.style.color = '#fa8c16';
-    stallValue.style.fontWeight = 'bold';
-    
-    stallRow.appendChild(stallLabel);
-    stallRow.appendChild(stallSlider);
-    stallRow.appendChild(stallValue);
-    
-    stallSettings.appendChild(stallTitle);
-    stallSettings.appendChild(stallRow);
-    
-    // 緩衝閾值設置
-    const bufferSettings = document.createElement('div');
-    bufferSettings.style.padding = '12px';
-    bufferSettings.style.backgroundColor = '#fff';
-    bufferSettings.style.borderRadius = '4px';
-    bufferSettings.style.border = '1px solid #e1e3e6';
-    
-    const bufferTitle = document.createElement('h4');
-    bufferTitle.textContent = '緩衝閾值';
-    bufferTitle.style.margin = '0 0 12px 0';
-    bufferTitle.style.color = '#52c41a';
-    bufferTitle.style.fontSize = '14px';
-    bufferTitle.style.fontWeight = 'bold';
-    
-    const bufferRow = document.createElement('div');
-    bufferRow.style.display = 'flex';
-    bufferRow.style.alignItems = 'center';
-    bufferRow.style.gap = '8px';
-    bufferRow.style.fontSize = '12px';
-    
-    const bufferLabel = document.createElement('span');
-    bufferLabel.textContent = '提升畫質緩衝:';
-    bufferLabel.style.minWidth = '80px';
-    
-    const bufferSlider = document.createElement('input');
-    bufferSlider.type = 'range';
-    bufferSlider.min = '5';
-    bufferSlider.max = '30';
-    bufferSlider.value = adaptiveQuality.config.bufferThreshold;
-    bufferSlider.style.flex = '1';
-    
-    const bufferValue = document.createElement('span');
-    bufferValue.textContent = `${adaptiveQuality.config.bufferThreshold}秒`;
-    bufferValue.style.minWidth = '30px';
-    bufferValue.style.color = '#52c41a';
-    bufferValue.style.fontWeight = 'bold';
-    
-    bufferRow.appendChild(bufferLabel);
-    bufferRow.appendChild(bufferSlider);
-    bufferRow.appendChild(bufferValue);
-    
-    bufferSettings.appendChild(bufferTitle);
-    bufferSettings.appendChild(bufferRow);
-    
-    settingsArea.appendChild(stallSettings);
-    settingsArea.appendChild(bufferSettings);
-    
-    // 調整歷史
-    const historyArea = document.createElement('div');
-    historyArea.style.marginTop = '16px';
-    historyArea.style.padding = '12px';
-    historyArea.style.backgroundColor = '#fff';
-    historyArea.style.borderRadius = '4px';
-    historyArea.style.border = '1px solid #e1e3e6';
-    
-    const historyTitle = document.createElement('h4');
-    historyTitle.textContent = '調整歷史';
-    historyTitle.style.margin = '0 0 12px 0';
-    historyTitle.style.color = '#722ed1';
-    historyTitle.style.fontSize = '14px';
-    historyTitle.style.fontWeight = 'bold';
-    
-    const historyContent = document.createElement('div');
-    historyContent.id = 'adaptive-history';
-    historyContent.style.fontSize = '12px';
-    historyContent.style.lineHeight = '1.6';
-    historyContent.style.maxHeight = '100px';
-    historyContent.style.overflowY = 'auto';
-    historyContent.style.color = '#666';
-    historyContent.textContent = '暫無調整記錄';
-    
-    historyArea.appendChild(historyTitle);
-    historyArea.appendChild(historyContent);
-    
-    contentArea.appendChild(statusGrid);
-    contentArea.appendChild(settingsArea);
-    contentArea.appendChild(historyArea);
-      // 組裝面板
-    adaptivePanel.appendChild(headerBar);
-    adaptivePanel.appendChild(contentArea);
-    
-    // 事件處理
-    let isCollapsed = false;
-    
-    // 啟用/禁用開關事件（阻止冒泡到標題欄）
-    enableSwitch.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-      enableCheckbox.addEventListener('change', (e) => {
-        const isEnabled = e.target.checked;
-        
-        if (isEnabled) {
-            adaptiveQuality.enable();
-            console.log('[自適應畫質] 已啟用');
-        } else {
-            adaptiveQuality.stop();
-            console.log('[自適應畫質] 已禁用');
-        }
-        
-        // 更新面板樣式
-        contentArea.style.opacity = isEnabled ? '1' : '0.6';
-        titleText.style.color = isEnabled ? '#fa8c16' : '#999';
-    });
-    
-    // 標題欄點擊事件（展開/折疊）
-    headerBar.addEventListener('click', () => {
-        isCollapsed = !isCollapsed;
-        if (isCollapsed) {
-            contentArea.style.display = 'none';
-            toggleIcon.style.transform = 'rotate(-90deg)';
-        } else {
-            contentArea.style.display = 'block';
-            toggleIcon.style.transform = 'rotate(0deg)';
-        }
-    });
-    
-    // 設置事件
-    stallSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        stallValue.textContent = `${value}次`;
-        adaptiveQuality.config.stallThreshold = value;
-        console.log('[自適應畫質] 卡頓閾值:', value + '次');
-    });
-    
-    bufferSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        bufferValue.textContent = `${value}秒`;
-        adaptiveQuality.config.bufferThreshold = value;
-        console.log('[自適應畫質] 緩衝閾值:', value + '秒');
-    });
-    
-    // 定期更新狀態
-    const updateStatus = () => {
-        const stats = adaptiveQuality.getStats();
-        
-        // 更新當前畫質
-        const qualityElement = document.getElementById('current-quality');
-        if (qualityElement) {
-            const currentQn = stats.currentQuality;
-            const qualityLevel = adaptiveQuality.qualityLevels.find(q => q.qn === currentQn);
-            qualityElement.textContent = qualityLevel ? qualityLevel.name : currentQn.toString();
-        }
-        
-        // 更新調整次數
-        const adjustElement = document.getElementById('adjust-count');
-        if (adjustElement) {
-            adjustElement.textContent = stats.adjustHistory.length.toString();
-        }
-        
-        // 更新自適應狀態
-        const statusElement = document.getElementById('adaptive-status');
-        if (statusElement) {
-            if (adaptiveQuality.config.enabled) {
-                if (stats.isAdjusting) {
-                    statusElement.textContent = '調整中';
-                    statusElement.style.color = '#fa8c16';
-                } else {
-                    statusElement.textContent = '監控中';
-                    statusElement.style.color = '#52c41a';
-                }
-            } else {
-                statusElement.textContent = '已停用';
-                statusElement.style.color = '#666';
-            }
-        }
-        
-        // 更新調整歷史
-        const historyElement = document.getElementById('adaptive-history');
-        if (historyElement) {
-            const history = stats.adjustHistory.slice(-5); // 顯示最近5次調整
-            if (history.length > 0) {
-                historyElement.innerHTML = history.map(record => {
-                    const time = new Date(record.timestamp).toLocaleTimeString();
-                    const fromQuality = adaptiveQuality.qualityLevels.find(q => q.qn === record.from);
-                    const toQuality = adaptiveQuality.qualityLevels.find(q => q.qn === record.to);
-                    const fromName = fromQuality ? fromQuality.name : record.from;
-                    const toName = toQuality ? toQuality.name : record.to;
-                    const direction = record.direction === 'lower' ? '↓' : '↑';
-                    return `<div>${time} ${fromName} ${direction} ${toName} (${record.reason})</div>`;
-                }).join('');
-            } else {
-                historyElement.textContent = '暫無調整記錄';
-            }
-        }
-    };
-    
-    // 初始更新狀態
-    updateStatus();
-    
-    // 每2秒更新一次狀態
-    const statusInterval = setInterval(updateStatus, 2000);
-    
-    // 將面板添加到控制欄
-    controlBar.appendChild(adaptivePanel);
-    
-    console.log('[自適應畫質控制面板] 創建完成');
-}
-
-// 導出必要的函數
-export { 
-    replacePlayer,
-    reloadPlayerWithNewCDN,
-    createControlBar,
-    createPreloadControlPanel,
-    createOptimizerControlPanel,
-    createAdaptiveQualityPanel
-};
+export { replacePlayer };

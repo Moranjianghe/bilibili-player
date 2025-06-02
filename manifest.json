@@ -3,7 +3,7 @@
   "name": "Bilibili Lite Player",
   "version": "0.1.0",
   "description": "用輕量化播放器替換 B 站原生播放器。",
-  "permissions": ["scripting", "activeTab"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*"
@@ -23,5 +23,9 @@
       ],
       "matches": ["https://www.bilibili.com/*"]
     }
-  ]
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Bilibili Lite Player 設定"
+  }
 }

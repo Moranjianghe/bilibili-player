@@ -7,30 +7,47 @@ import { observeBVChange, hijackBVLinks } from './utils.js';
 let currentQn = 80; // 預設 1080P
 let currentAudioQuality = null; // 預設 null，優先最高
 
+// 取得 fnval/codec/默認畫質 設定（async）
+function getPlayerConfigFromStorage() {
+    return new Promise((resolve) => {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.get(['bilibili-lite-fnval', 'bilibili-lite-codec', 'bilibili-lite-default-qn'], (result) => {
+                resolve({
+                    fnval: result['bilibili-lite-fnval'] !== undefined ? parseInt(result['bilibili-lite-fnval']) : 16,
+                    codec: result['bilibili-lite-codec'] || '',
+                    defaultQn: result['bilibili-lite-default-qn'] !== undefined ? parseInt(result['bilibili-lite-default-qn']) : 80
+                });
+            });
+        } else {
+            // fallback for local dev
+            resolve({
+                fnval: parseInt(localStorage.getItem('bilibili-lite-fnval') || '16'),
+                codec: localStorage.getItem('bilibili-lite-codec') || '',
+                defaultQn: parseInt(localStorage.getItem('bilibili-lite-default-qn') || '80')
+            });
+        }
+    });
+}
+
 // 封裝 main 為可重複調用
-async function mainReload(qn = currentQn, audioQuality = currentAudioQuality) {
-    console.log('[LitePlayer] mainReload 開始執行, 畫質:', qn, '音質:', audioQuality);
-    
+async function mainReload(qn = null, audioQuality = currentAudioQuality, userFnval = null, userCodec = null) {
+    console.log('[LitePlayer] mainReload 開始執行, 畫質:', qn, '音質:', audioQuality, 'fnval:', userFnval, 'codec:', userCodec);
     try {
         const bvid = getBvId();
-        console.log('[LitePlayer] 獲取到的 BV 號:', bvid);
-        if (!bvid) {
-            console.warn('[LitePlayer] 未獲取到BV號, 終止');
-            return;
-        }
-        
-        console.log('[LitePlayer] 開始獲取 cid');
+        if (!bvid) return;
         const cid = await fetchCid(bvid);
-        console.log('[LitePlayer] 獲取到的 cid:', cid);
-        if (!cid) {
-            console.warn('[LitePlayer] 未獲取到cid');
-            return;
+        if (!cid) return;
+        // 讀取 fnval/codec/默認畫質
+        let fnval = userFnval;
+        let codec = userCodec;
+        let defaultQn = 80;
+        if (fnval === null || codec === null || qn === null) {
+            const config = await getPlayerConfigFromStorage();
+            if (fnval === null) fnval = config.fnval;
+            if (codec === null) codec = config.codec;
+            if (qn === null) qn = config.defaultQn;
         }
-        
-        console.log('[LitePlayer] 開始獲取播放信息');
-        const playInfo = await fetchPlayUrl(bvid, cid, qn, audioQuality);
-        console.log('[LitePlayer] 獲取到的播放信息:', playInfo);
-        
+        const playInfo = await fetchPlayUrl(bvid, cid, qn, audioQuality, fnval, codec);
         if (playInfo) {
             currentQn = playInfo.qn;
             currentAudioQuality = playInfo.audioQuality;
@@ -118,6 +135,20 @@ function init() {
     
     // 將 mainReload 暴露到全局範圍，供 CDN 切換使用
     window.mainReload = mainReload;
+    
+    // 監聽 chrome.storage 設定變更，自動 reload 播放器
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && ('bilibili-lite-fnval' in changes || 'bilibili-lite-codec' in changes)) {
+                // 自動刷新播放器
+                if (typeof window.mainReload === 'function') {
+                    window.mainReload();
+                } else {
+                    location.reload();
+                }
+            }
+        });
+    }
     
     console.log('[LitePlayer] 初始化完成');
 }
