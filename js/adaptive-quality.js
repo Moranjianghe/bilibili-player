@@ -75,7 +75,19 @@ class AdaptiveQuality {
             clearInterval(this.intervalId);
             this.intervalId = null;
         }
+        this.config.enabled = false;
         console.log('[自適應畫質] 已停止');
+    }
+    
+    /**
+     * 重新啟用自適應畫質調整
+     */
+    enable() {
+        this.config.enabled = true;
+        if (this.state.currentQuality && this.qualityChangeCallback) {
+            this.start(this.state.currentQuality, this.qualityChangeCallback);
+        }
+        console.log('[自適應畫質] 已重新啟用');
     }
     
     /**

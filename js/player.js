@@ -1612,19 +1612,48 @@ function createAdaptiveQualityPanel(controlBar, adaptiveQuality) {
     headerBar.style.alignItems = 'center';
     headerBar.style.justifyContent = 'space-between';
     headerBar.style.userSelect = 'none';
-    
-    const titleText = document.createElement('span');
+      const titleText = document.createElement('span');
     titleText.textContent = '自適應畫質';
     titleText.style.fontWeight = 'bold';
     titleText.style.color = '#fa8c16';
+    
+    // 創建右側控制區域
+    const rightControls = document.createElement('div');
+    rightControls.style.display = 'flex';
+    rightControls.style.alignItems = 'center';
+    rightControls.style.gap = '8px';
+    
+    // 創建啟用/禁用開關
+    const enableSwitch = document.createElement('label');
+    enableSwitch.style.display = 'flex';
+    enableSwitch.style.alignItems = 'center';
+    enableSwitch.style.gap = '4px';
+    enableSwitch.style.fontSize = '12px';
+    enableSwitch.style.cursor = 'pointer';
+    enableSwitch.style.color = '#666';
+    
+    const enableCheckbox = document.createElement('input');
+    enableCheckbox.type = 'checkbox';
+    enableCheckbox.checked = adaptiveQuality.config.enabled;
+    enableCheckbox.style.margin = '0';
+    
+    const enableLabel = document.createElement('span');
+    enableLabel.textContent = '啟用';
+    
+    enableSwitch.appendChild(enableCheckbox);
+    enableSwitch.appendChild(enableLabel);
     
     const toggleIcon = document.createElement('span');
     toggleIcon.textContent = '▼';
     toggleIcon.style.transition = 'transform 0.2s';
     toggleIcon.style.color = '#666';
+    toggleIcon.style.marginLeft = '8px';
+    
+    rightControls.appendChild(enableSwitch);
+    rightControls.appendChild(toggleIcon);
     
     headerBar.appendChild(titleText);
-    headerBar.appendChild(toggleIcon);
+    headerBar.appendChild(rightControls);
     
     // 創建內容區域
     const contentArea = document.createElement('div');
@@ -1842,13 +1871,34 @@ function createAdaptiveQualityPanel(controlBar, adaptiveQuality) {
     contentArea.appendChild(statusGrid);
     contentArea.appendChild(settingsArea);
     contentArea.appendChild(historyArea);
-    
-    // 組裝面板
+      // 組裝面板
     adaptivePanel.appendChild(headerBar);
     adaptivePanel.appendChild(contentArea);
     
     // 事件處理
     let isCollapsed = false;
+    
+    // 啟用/禁用開關事件（阻止冒泡到標題欄）
+    enableSwitch.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+      enableCheckbox.addEventListener('change', (e) => {
+        const isEnabled = e.target.checked;
+        
+        if (isEnabled) {
+            adaptiveQuality.enable();
+            console.log('[自適應畫質] 已啟用');
+        } else {
+            adaptiveQuality.stop();
+            console.log('[自適應畫質] 已禁用');
+        }
+        
+        // 更新面板樣式
+        contentArea.style.opacity = isEnabled ? '1' : '0.6';
+        titleText.style.color = isEnabled ? '#fa8c16' : '#999';
+    });
+    
+    // 標題欄點擊事件（展開/折疊）
     headerBar.addEventListener('click', () => {
         isCollapsed = !isCollapsed;
         if (isCollapsed) {
