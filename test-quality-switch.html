@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>畫質切換測試 - Bilibili 播放器</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1e1e1e;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .player-wrapper {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 20px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .player-container {
+            width: 100%;
+            height: 450px;
+            position: relative;
+            background: #000;
+        }
+        .test-controls {
+            margin: 20px 0;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        .test-button {
+            background: #00a1d6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .test-button:hover {
+            background: #0087b3;
+        }
+        .test-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .log-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-info { color: #00a1d6; }
+        .log-success { color: #52c41a; }
+        .log-warning { color: #faad14; }
+        .log-error { color: #ff4d4f; }
+        .status-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .status-card {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #00a1d6;
+        }
+        .status-label {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        .status-value {
+            font-size: 14px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>畫質切換測試</h1>
+        <p>此頁面用於測試 Bilibili 播放器的畫質切換功能和預加載器資源清理</p>
+        
+        <div class="player-wrapper">
+            <div id="player-container" class="player-container">
+                <!-- 播放器將在這裡加載 -->
+            </div>
+        </div>
+        
+        <div class="test-controls">
+            <h3>測試控制</h3>
+            <button id="load-test-video" class="test-button">加載測試視頻</button>
+            <button id="test-quality-1080p" class="test-button" disabled>切換到 1080P</button>
+            <button id="test-quality-720p" class="test-button" disabled>切換到 720P</button>
+            <button id="test-quality-480p" class="test-button" disabled>切換到 480P</button>
+            <button id="test-rapid-switch" class="test-button" disabled>快速切換測試</button>
+            <button id="clear-log" class="test-button">清空日誌</button>
+            
+            <div class="status-info">
+                <div class="status-card">
+                    <div class="status-label">當前畫質</div>
+                    <div id="current-quality" class="status-value">-</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">事件監聽器數量</div>
+                    <div id="event-listeners" class="status-value">-</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">預加載器狀態</div>
+                    <div id="preloader-status" class="status-value">-</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">切換次數</div>
+                    <div id="switch-count" class="status-value">0</div>
+                </div>
+            </div>
+            
+            <div class="log-panel" id="log-panel">
+                <div class="log-entry log-info">[測試] 準備就緒，點擊"加載測試視頻"開始測試</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 測試數據
+        const testVideoData = {
+            bvid: 'BV1xx411c7mD',
+            cid: 123456,
+            dash: {
+                video: [
+                    { id: 80, baseUrl: 'https://example.com/video_1080p.m4s', bandwidth: 2000000 },
+                    { id: 64, baseUrl: 'https://example.com/video_720p.m4s', bandwidth: 1200000 },
+                    { id: 32, baseUrl: 'https://example.com/video_480p.m4s', bandwidth: 600000 }
+                ],
+                audio: [
+                    { id: 30280, baseUrl: 'https://example.com/audio.m4s', bandwidth: 128000 }
+                ]
+            }
+        };
+
+        let switchCount = 0;
+        let currentQuality = null;
+
+        // 日誌功能
+        function addLog(message, type = 'info') {
+            const logPanel = document.getElementById('log-panel');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logPanel.appendChild(logEntry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        function updateStatus() {
+            document.getElementById('current-quality').textContent = currentQuality || '-';
+            document.getElementById('switch-count').textContent = switchCount;
+            
+            // 檢查事件監聽器（簡化版本）
+            const videoElements = document.querySelectorAll('video');
+            const audioElements = document.querySelectorAll('audio');
+            const listenerCount = (videoElements.length * 10) + (audioElements.length * 10); // 估算
+            document.getElementById('event-listeners').textContent = listenerCount;
+            
+            // 檢查預加載器狀態
+            if (window.mediaPreloader) {
+                document.getElementById('preloader-status').textContent = '已初始化';
+            } else {
+                document.getElementById('preloader-status').textContent = '未初始化';
+            }
+        }
+
+        // 模擬播放器功能
+        function simulateQualitySwitch(quality) {
+            addLog(`開始切換到 ${quality}`, 'info');
+            switchCount++;
+            currentQuality = quality;
+            
+            // 模擬 mainReload 調用
+            if (typeof window.mainReload === 'function') {
+                const qnMap = { '1080P': 80, '720P': 64, '480P': 32 };
+                window.mainReload(qnMap[quality]);
+                addLog(`調用 mainReload(${qnMap[quality]})`, 'success');
+            } else {
+                addLog('mainReload 函數不可用', 'warning');
+            }
+            
+            updateStatus();
+            
+            // 檢查是否有資源泄漏
+            setTimeout(() => {
+                checkResourceLeaks();
+            }, 1000);
+        }
+
+        function checkResourceLeaks() {
+            const videoElements = document.querySelectorAll('video');
+            const audioElements = document.querySelectorAll('audio');
+            
+            addLog(`檢查資源: ${videoElements.length} 個視頻元素, ${audioElements.length} 個音頻元素`, 'info');
+            
+            // 檢查是否有過多的媒體元素（可能表示清理不完全）
+            if (videoElements.length > 1 || audioElements.length > 1) {
+                addLog('警告: 發現多個媒體元素，可能存在資源泄漏', 'warning');
+            } else {
+                addLog('資源檢查通過', 'success');
+            }
+        }
+
+        // 快速切換測試
+        async function rapidSwitchTest() {
+            addLog('開始快速切換測試...', 'info');
+            const qualities = ['1080P', '720P', '480P', '1080P', '720P'];
+            
+            for (let i = 0; i < qualities.length; i++) {
+                simulateQualitySwitch(qualities[i]);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 等待2秒
+            }
+            
+            addLog('快速切換測試完成', 'success');
+            checkResourceLeaks();
+        }
+
+        // 事件監聽器
+        document.getElementById('load-test-video').addEventListener('click', () => {
+            addLog('模擬加載測試視頻...', 'info');
+            // 啟用其他按鈕
+            document.querySelectorAll('.test-button:not(#load-test-video):not(#clear-log)').forEach(btn => {
+                btn.disabled = false;
+            });
+            currentQuality = '1080P';
+            updateStatus();
+            addLog('測試視頻加載完成，可以開始畫質切換測試', 'success');
+        });
+
+        document.getElementById('test-quality-1080p').addEventListener('click', () => {
+            simulateQualitySwitch('1080P');
+        });
+
+        document.getElementById('test-quality-720p').addEventListener('click', () => {
+            simulateQualitySwitch('720P');
+        });
+
+        document.getElementById('test-quality-480p').addEventListener('click', () => {
+            simulateQualitySwitch('480P');
+        });
+
+        document.getElementById('test-rapid-switch').addEventListener('click', () => {
+            rapidSwitchTest();
+        });
+
+        document.getElementById('clear-log').addEventListener('click', () => {
+            document.getElementById('log-panel').innerHTML = '';
+            addLog('日誌已清空', 'info');
+        });
+
+        // 監聽自定義事件
+        document.addEventListener('qualityChangeRequest', (event) => {
+            addLog(`收到畫質變更請求: ${event.detail.quality} (原因: ${event.detail.reason})`, 'info');
+        });
+
+        // 定期更新狀態
+        setInterval(updateStatus, 1000);
+
+        // 初始化
+        addLog('測試頁面已加載', 'success');
+        updateStatus();
+    </script>
+</body>
+</html>

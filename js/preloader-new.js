@@ -98,27 +98,12 @@ class MediaPreloader {
         }
         if (config.audioUseMultiThread !== undefined) {
             this.config.audio.useMultiThread = config.audioUseMultiThread;
-        }        if (config.videoMaxConcurrentDownloads !== undefined) {
-            this.config.video.maxConcurrentDownloads = Math.max(1, Math.min(16, config.videoMaxConcurrentDownloads));
+        }
+        if (config.videoMaxConcurrentDownloads !== undefined) {
+            this.config.video.maxConcurrentDownloads = Math.max(1, Math.min(8, config.videoMaxConcurrentDownloads));
         }
         if (config.audioMaxConcurrentDownloads !== undefined) {
-            this.config.audio.maxConcurrentDownloads = Math.max(1, Math.min(16, config.audioMaxConcurrentDownloads));
-        }
-        
-        // 新增的高級配置選項
-        if (config.videoSegmentSize !== undefined) {
-            this.config.video.segmentSize = Math.max(256 * 1024, Math.min(16 * 1024 * 1024, config.videoSegmentSize)); // 256KB - 16MB
-        }
-        if (config.audioSegmentSize !== undefined) {
-            this.config.audio.segmentSize = Math.max(256 * 1024, Math.min(8 * 1024 * 1024, config.audioSegmentSize)); // 256KB - 8MB
-        }
-        if (config.timeout !== undefined) {
-            this.config.video.timeout = Math.max(5000, Math.min(60000, config.timeout)); // 5-60秒
-            this.config.audio.timeout = Math.max(5000, Math.min(60000, config.timeout));
-        }
-        if (config.retryAttempts !== undefined) {
-            this.config.video.retryAttempts = Math.max(0, Math.min(5, config.retryAttempts)); // 0-5次
-            this.config.audio.retryAttempts = Math.max(0, Math.min(5, config.retryAttempts));
+            this.config.audio.maxConcurrentDownloads = Math.max(1, Math.min(8, config.audioMaxConcurrentDownloads)); // 提高到8
         }
         
         console.log('[預加載器] 配置更新:', this.config);
@@ -244,37 +229,31 @@ class MediaPreloader {
             console.log('[預加載器] 音頻多線程下載器已初始化');
         }
     }
-      /**
+    
+    /**
      * 設置事件監聽器
      */
     setupEventListeners() {
-        // 為了能夠正確移除事件監聽器，需要保存函數引用
-        this.videoTimeUpdateHandler = () => {
-            this.state.currentVideoTime = this.state.videoElement.currentTime;
-            this.checkPreload('video');
-        };
-        
-        this.videoSeekingHandler = () => {
-            this.onSeek('video');
-        };
-        
-        this.audioTimeUpdateHandler = () => {
-            this.state.currentAudioTime = this.state.audioElement.currentTime;
-            this.checkPreload('audio');
-        };
-        
-        this.audioSeekingHandler = () => {
-            this.onSeek('audio');
-        };
-        
         if (this.state.videoElement) {
-            this.state.videoElement.addEventListener('timeupdate', this.videoTimeUpdateHandler);
-            this.state.videoElement.addEventListener('seeking', this.videoSeekingHandler);
+            this.state.videoElement.addEventListener('timeupdate', () => {
+                this.state.currentVideoTime = this.state.videoElement.currentTime;
+                this.checkPreload('video');
+            });
+            
+            this.state.videoElement.addEventListener('seeking', () => {
+                this.onSeek('video');
+            });
         }
         
         if (this.state.audioElement) {
-            this.state.audioElement.addEventListener('timeupdate', this.audioTimeUpdateHandler);
-            this.state.audioElement.addEventListener('seeking', this.audioSeekingHandler);
+            this.state.audioElement.addEventListener('timeupdate', () => {
+                this.state.currentAudioTime = this.state.audioElement.currentTime;
+                this.checkPreload('audio');
+            });
+            
+            this.state.audioElement.addEventListener('seeking', () => {
+                this.onSeek('audio');
+            });
         }
     }
     
@@ -534,7 +513,9 @@ class MediaPreloader {
                 preloadDuration: this.config.audio.preloadDuration
             }
         };
-    }    /**
+    }
+    
+    /**
      * 停止預加載
      */
     stop() {
@@ -551,56 +532,16 @@ class MediaPreloader {
         
         // 移除事件監聽器
         if (this.state.videoElement) {
-            if (this.videoTimeUpdateHandler) {
-                this.state.videoElement.removeEventListener('timeupdate', this.videoTimeUpdateHandler);
-            }
-            if (this.videoSeekingHandler) {
-                this.state.videoElement.removeEventListener('seeking', this.videoSeekingHandler);
-            }
+            this.state.videoElement.removeEventListener('timeupdate', this.checkPreload);
+            this.state.videoElement.removeEventListener('seeking', this.onSeek);
         }
         
         if (this.state.audioElement) {
-            if (this.audioTimeUpdateHandler) {
-                this.state.audioElement.removeEventListener('timeupdate', this.audioTimeUpdateHandler);
-            }
-            if (this.audioSeekingHandler) {
-                this.state.audioElement.removeEventListener('seeking', this.audioSeekingHandler);
-            }
+            this.state.audioElement.removeEventListener('timeupdate', this.checkPreload);
+            this.state.audioElement.removeEventListener('seeking', this.onSeek);
         }
         
         console.log('[預加載器] 已停止');
-    }
-
-    /**
-     * 銷毀預加載器，徹底清理所有資源
-     */
-    destroy() {
-        // 先停止預加載
-        this.stop();
-        
-        // 銷毀多線程下載器
-        if (this.videoLoader) {
-            this.videoLoader.destroy();
-            this.videoLoader = null;
-        }
-        if (this.audioLoader) {
-            this.audioLoader.destroy();
-            this.audioLoader = null;
-        }
-        
-        // 清空事件處理器引用
-        this.videoTimeUpdateHandler = null;
-        this.videoSeekingHandler = null;
-        this.audioTimeUpdateHandler = null;
-        this.audioSeekingHandler = null;
-        
-        // 清空狀態
-        this.state.videoElement = null;
-        this.state.audioElement = null;
-        this.state.videoUrl = null;
-        this.state.audioUrl = null;
-        
-        console.log('[預加載器] 已銷毀');
     }
 
     /**

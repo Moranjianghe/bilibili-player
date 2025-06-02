@@ -41,8 +41,7 @@ class AdaptiveQuality {
         this.intervalId = null;
         console.log('[自適應畫質] 初始化完成');
     }
-    
-    /**
+      /**
      * 啟動自適應畫質調整
      * @param {number} currentQuality - 當前畫質
      * @param {function} qualityChangeCallback - 畫質變更回調
@@ -55,19 +54,26 @@ class AdaptiveQuality {
             clearInterval(this.intervalId);
         }
         
+        // 清理舊的事件監聽器
+        if (this.qualityRequestHandler) {
+            document.removeEventListener('qualityChangeRequest', this.qualityRequestHandler);
+        }
+        
+        // 創建新的事件處理器並保存引用
+        this.qualityRequestHandler = (e) => {
+            this.handleQualityRequest(e.detail);
+        };
+        
         this.intervalId = setInterval(() => {
             this.checkAndAdjustQuality();
         }, this.config.adjustInterval);
         
         // 監聽自定義事件
-        document.addEventListener('qualityChangeRequest', (e) => {
-            this.handleQualityRequest(e.detail);
-        });
+        document.addEventListener('qualityChangeRequest', this.qualityRequestHandler);
         
+        this.config.enabled = true;
         console.log('[自適應畫質] 已啟動，當前畫質:', this.getQualityName(currentQuality));
-    }
-    
-    /**
+    }    /**
      * 停止自適應畫質調整
      */
     stop() {
@@ -75,8 +81,27 @@ class AdaptiveQuality {
             clearInterval(this.intervalId);
             this.intervalId = null;
         }
+        
+        // 移除事件監聽器
+        if (this.qualityRequestHandler) {
+            document.removeEventListener('qualityChangeRequest', this.qualityRequestHandler);
+            this.qualityRequestHandler = null;
+        }
+        
         this.config.enabled = false;
-        console.log('[自適應畫質] 已停止');
+        
+        // 清理狀態
+        this.state.stallCount = 0;
+        this.state.lastStallTime = 0;
+        this.state.avgNetworkSpeed = 0;
+        this.state.bufferHealth = 0;
+        this.state.isAdjusting = false;
+        this.state.adjustHistory = [];
+        
+        // 清理回調
+        this.qualityChangeCallback = null;
+        
+        console.log('[自適應畫質] 已停止並清理狀態');
     }
     
     /**

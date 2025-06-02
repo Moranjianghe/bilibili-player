@@ -12,6 +12,72 @@ let playbackOptimizer = null;
 let quickFixes = null;
 let adaptiveQuality = null;
 
+// 全局變量存儲播放器事件監聽器引用，用於內存洩漏防護
+let playerEventHandlers = {
+    video: new Map(),
+    audio: new Map(),
+    syncHandlers: []
+};
+
+/**
+ * 清理播放器事件監聽器，防止內存洩漏
+ */
+function cleanupPlayerEventListeners() {
+    const existingPlayer = document.getElementById('bilibili-lite-player');
+    if (existingPlayer) {
+        const video = existingPlayer.querySelector('video');
+        const audio = existingPlayer.querySelector('audio');
+        
+        // 清理視頻事件監聽器
+        if (video && playerEventHandlers.video.size > 0) {
+            playerEventHandlers.video.forEach((handler, event) => {
+                video.removeEventListener(event, handler);
+            });
+            console.log(`[LitePlayer] 已清理 ${playerEventHandlers.video.size} 個視頻事件監聽器`);
+        }
+        
+        // 清理音頻事件監聽器
+        if (audio && playerEventHandlers.audio.size > 0) {
+            playerEventHandlers.audio.forEach((handler, event) => {
+                audio.removeEventListener(event, handler);
+            });
+            console.log(`[LitePlayer] 已清理 ${playerEventHandlers.audio.size} 個音頻事件監聽器`);
+        }
+        
+        // 清理同步處理器
+        if (playerEventHandlers.syncHandlers.length > 0) {
+            console.log(`[LitePlayer] 清理了 ${playerEventHandlers.syncHandlers.length} 個同步處理器引用`);
+        }
+    }
+    
+    // 清理 QuickFixes 事件監聽器
+    if (quickFixes) {
+        quickFixes.destroy();
+        console.log('[LitePlayer] 已清理 QuickFixes 事件監聽器');
+    }
+    
+    // 重置監聽器引用
+    playerEventHandlers = {
+        video: new Map(),
+        audio: new Map(),
+        syncHandlers: []
+    };
+}
+
+/**
+ * 添加事件監聽器並記錄引用
+ * @param {HTMLElement} element - 目標元素
+ * @param {string} event - 事件名稱
+ * @param {Function} handler - 事件處理器
+ * @param {string} type - 元素類型 ('video' 或 'audio')
+ */
+function addTrackedEventListener(element, event, handler, type) {
+    element.addEventListener(event, handler);
+    if (type === 'video' || type === 'audio') {
+        playerEventHandlers[type].set(event, handler);
+    }
+}
+
 /**
  * CDN 切換後重新加載播放器
  * @param {string} oldCDN - 舊的 CDN 節點
@@ -44,11 +110,13 @@ async function reloadPlayerWithNewCDN(oldCDN, newCDN) {
         `;
         loadingDiv.textContent = `正在切換到 ${newCDN.toUpperCase()} CDN...`;
         currentPlayer.appendChild(loadingDiv);
-        
-        // 調用 mainReload，讓它處理狀態保存和恢復
+          // 調用 mainReload，讓它處理狀態保存和恢復
         if (typeof window.mainReload === 'function') {
             // 等待短暫延遲以顯示加載提示
             await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // 清理現有事件監聽器防止內存洩漏
+            cleanupPlayerEventListeners();
             
             // 重新加載播放器（不傳參數，使用當前畫質設置）
             await window.mainReload();
@@ -86,6 +154,9 @@ async function reloadPlayerWithNewCDN(oldCDN, newCDN) {
 // 替換播放器，支持 dash（簡單合併，僅現代瀏覽器支持）
 function replacePlayer(playInfo, mainReload) {
     console.log('[LitePlayer] replacePlayer 開始執行');
+    
+    // 清理現有事件監聽器防止內存洩漏
+    cleanupPlayerEventListeners();
     
     // 檢查是否已存在我們的播放器
     let newPlayer = document.getElementById('bilibili-lite-player');
@@ -203,20 +274,29 @@ function replacePlayer(playInfo, mainReload) {
         // 加入動畫樣式
         const style = document.createElement('style');
         style.innerHTML = `@keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
-        document.head.appendChild(style);
-        // 控制同步
+        document.head.appendChild(style);        // 控制同步
         function syncAudio() {
             if (Math.abs(video.currentTime - audio.currentTime) > 0.1) {
                 audio.currentTime = video.currentTime;
             }
         }
-        video.addEventListener('play', () => { audio.play(); });
-        video.addEventListener('pause', () => { audio.pause(); });
-        video.addEventListener('seeking', () => { audio.currentTime = video.currentTime; });
-        video.addEventListener('ratechange', () => { audio.playbackRate = video.playbackRate; });
-        video.addEventListener('volumechange', () => { audio.volume = video.volume; audio.muted = video.muted; });
-        video.addEventListener('timeupdate', syncAudio);
-        // loading 檢查
+        
+        // 使用跟蹤式事件監聽器添加，防止內存洩漏
+        const playHandler = () => { audio.play(); };
+        const pauseHandler = () => { audio.pause(); };
+        const seekingHandler = () => { audio.currentTime = video.currentTime; };
+        const rateChangeHandler = () => { audio.playbackRate = video.playbackRate; };
+        const volumeChangeHandler = () => { audio.volume = video.volume; audio.muted = video.muted; };
+        
+        addTrackedEventListener(video, 'play', playHandler, 'video');
+        addTrackedEventListener(video, 'pause', pauseHandler, 'video');
+        addTrackedEventListener(video, 'seeking', seekingHandler, 'video');
+        addTrackedEventListener(video, 'ratechange', rateChangeHandler, 'video');
+        addTrackedEventListener(video, 'volumechange', volumeChangeHandler, 'video');
+        addTrackedEventListener(video, 'timeupdate', syncAudio, 'video');
+        
+        // 保存同步處理器引用以便清理
+        playerEventHandlers.syncHandlers.push(syncAudio, playHandler, pauseHandler, seekingHandler, rateChangeHandler, volumeChangeHandler);        // loading 檢查
         function setLoading(show) {
             loading.style.display = show ? 'flex' : 'none';
         }
@@ -232,18 +312,25 @@ function replacePlayer(playInfo, mainReload) {
                 if (!audio.paused) video.play();
             }
         }
-        video.addEventListener('waiting', checkBuffering);
-        audio.addEventListener('waiting', checkBuffering);
-        video.addEventListener('seeking', checkBuffering);
-        audio.addEventListener('seeking', checkBuffering);
-        video.addEventListener('playing', checkBuffering);
-        audio.addEventListener('playing', checkBuffering);
-        video.addEventListener('canplay', checkBuffering);
-        audio.addEventListener('canplay', checkBuffering);
-        video.addEventListener('canplaythrough', checkBuffering);
-        audio.addEventListener('canplaythrough', checkBuffering);
+        
+        // 使用跟蹤式事件監聽器，防止內存洩漏
+        addTrackedEventListener(video, 'waiting', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'waiting', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'seeking', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'seeking', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'playing', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'playing', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'canplay', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'canplay', checkBuffering, 'audio');
+        addTrackedEventListener(video, 'canplaythrough', checkBuffering, 'video');
+        addTrackedEventListener(audio, 'canplaythrough', checkBuffering, 'audio');
+          // 保存緩衝處理器引用
+        playerEventHandlers.syncHandlers.push(setLoading, checkBuffering);
+        
         // 初始檢查
-        setTimeout(checkBuffering, 100);        // 插入
+        setTimeout(checkBuffering, 100);
+        
+        // 插入
         newPlayer.appendChild(video);
         newPlayer.appendChild(audio);
         
@@ -252,10 +339,9 @@ function replacePlayer(playInfo, mainReload) {
             streamMonitor.stopMonitoring();
         }
         streamMonitor = new StreamMonitor();
-        streamMonitor.startMonitoring(video, audio);
-          // 啟動預加載器
+        streamMonitor.startMonitoring(video, audio);        // 啟動預加載器
         if (mediaPreloader) {
-            mediaPreloader.stop();
+            mediaPreloader.destroy();
         }
         mediaPreloader = new MediaPreloader();
         mediaPreloader.initialize(video, audio, videoUrl, audioUrl);
@@ -275,12 +361,16 @@ function replacePlayer(playInfo, mainReload) {
                 enabled: true,
                 speedTest: true,
                 qualityAdjust: true
-            }
-        });
+            }        });
           // 應用快速修復
         if (!quickFixes) {
             quickFixes = new QuickFixes();
             quickFixes.applyAllFixes();
+        } else {
+            // 重新應用快速修復（因為可能已經被清理）
+            if (!quickFixes.isApplied) {
+                quickFixes.applyAllFixes();
+            }
         }
         
         // 啟動自適應畫質調整
@@ -320,10 +410,9 @@ function replacePlayer(playInfo, mainReload) {
             streamMonitor.stopMonitoring();
         }
         streamMonitor = new StreamMonitor();
-        streamMonitor.startMonitoring(video, null);
-          // 啟動預加載器（僅視頻）
+        streamMonitor.startMonitoring(video, null);        // 啟動預加載器（僅視頻）
         if (mediaPreloader) {
-            mediaPreloader.stop();
+            mediaPreloader.destroy();
         }
         mediaPreloader = new MediaPreloader();
         mediaPreloader.initialize(video, null, playInfo.videoUrl, null);
@@ -331,12 +420,16 @@ function replacePlayer(playInfo, mainReload) {
         if (playbackOptimizer) {
             playbackOptimizer.stop();
         }
-        playbackOptimizer = new PlaybackOptimizer();
-        playbackOptimizer.initialize(video, null);
+        playbackOptimizer = new PlaybackOptimizer();        playbackOptimizer.initialize(video, null);
           // 應用快速修復
         if (!quickFixes) {
             quickFixes = new QuickFixes();
             quickFixes.applyAllFixes();
+        } else {
+            // 重新應用快速修復（因為可能已經被清理）
+            if (!quickFixes.isApplied) {
+                quickFixes.applyAllFixes();
+            }
         }
         
         // 啟動自適應畫質調整
@@ -1164,12 +1257,160 @@ function createPreloadControlPanel(controlBar, preloader) {
     statsContent.style.display = 'grid';
     statsContent.style.gridTemplateColumns = '1fr 1fr';
     statsContent.style.gap = '12px';
-    
-    statsArea.appendChild(statsTitle);
+      statsArea.appendChild(statsTitle);
     statsArea.appendChild(statsContent);
-    
     contentArea.appendChild(controlGrid);
+    
+    // 實時性能監控區域
+    const performanceMonitorArea = document.createElement('div');
+    performanceMonitorArea.style.cssText = `
+        margin-top: 16px;
+        padding: 12px;
+        background: #f6ffed;
+        border-radius: 4px;
+        border: 1px solid #b7eb8f;
+    `;
+
+    const monitorTitle = document.createElement('h4');
+    monitorTitle.textContent = '🚀 實時性能監控';
+    monitorTitle.style.cssText = `
+        margin: 0 0 12px 0;
+        color: #52c41a;
+        font-size: 14px;
+        font-weight: bold;
+    `;
+
+    const monitorGrid = document.createElement('div');
+    monitorGrid.style.cssText = `
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+    `;
+
+    // 下載速度監控
+    const speedCard = document.createElement('div');
+    speedCard.style.cssText = `
+        padding: 8px;
+        background: #fff;
+        border-radius: 4px;
+        border: 1px solid #d9f7be;
+        text-align: center;
+    `;
+
+    const speedTitle = document.createElement('div');
+    speedTitle.textContent = '下載速度';
+    speedTitle.style.cssText = `
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 4px;
+    `;
+
+    const speedValue = document.createElement('div');
+    speedValue.id = 'thread-download-speed';
+    speedValue.textContent = '0 MB/s';
+    speedValue.style.cssText = `
+        font-size: 14px;
+        font-weight: bold;
+        color: #52c41a;
+    `;
+
+    speedCard.appendChild(speedTitle);
+    speedCard.appendChild(speedValue);
+
+    // 活躍線程監控
+    const threadsCard = document.createElement('div');
+    threadsCard.style.cssText = `
+        padding: 8px;
+        background: #fff;
+        border-radius: 4px;
+        border: 1px solid #d9f7be;
+        text-align: center;
+    `;
+
+    const threadsTitle = document.createElement('div');
+    threadsTitle.textContent = '活躍線程';
+    threadsTitle.style.cssText = `
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 4px;
+    `;
+
+    const threadsValue = document.createElement('div');
+    threadsValue.id = 'active-threads';
+    threadsValue.textContent = '0/0';
+    threadsValue.style.cssText = `
+        font-size: 14px;
+        font-weight: bold;
+        color: #1890ff;
+    `;
+
+    threadsCard.appendChild(threadsTitle);
+    threadsCard.appendChild(threadsValue);
+
+    // 緩存效率監控
+    const efficiencyCard = document.createElement('div');
+    efficiencyCard.style.cssText = `
+        padding: 8px;
+        background: #fff;
+        border-radius: 4px;
+        border: 1px solid #d9f7be;
+        text-align: center;
+    `;
+
+    const efficiencyTitle = document.createElement('div');
+    efficiencyTitle.textContent = '緩存效率';
+    efficiencyTitle.style.cssText = `
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 4px;
+    `;
+
+    const efficiencyValue = document.createElement('div');
+    efficiencyValue.id = 'cache-efficiency';
+    efficiencyValue.textContent = '0%';
+    efficiencyValue.style.cssText = `
+        font-size: 14px;
+        font-weight: bold;
+        color: #722ed1;
+    `;
+
+    efficiencyCard.appendChild(efficiencyTitle);
+    efficiencyCard.appendChild(efficiencyValue);
+
+    monitorGrid.appendChild(speedCard);
+    monitorGrid.appendChild(threadsCard);
+    monitorGrid.appendChild(efficiencyCard);
+
+    // 性能提示區域
+    const tipsArea = document.createElement('div');
+    tipsArea.style.cssText = `
+        font-size: 11px;
+        color: #666;
+        line-height: 1.4;
+        padding: 8px;
+        background: #fafafa;
+        border-radius: 3px;
+        border-left: 3px solid #52c41a;
+    `;
+
+    const tipsContent = document.createElement('div');
+    tipsContent.id = 'performance-tips';
+    tipsContent.innerHTML = `
+        <div style="margin-bottom: 2px;">💡 <strong>性能提示:</strong></div>
+        <div>• 高速網絡建議使用 8+ 線程和 4MB 段落大小</div>
+        <div>• 慢速網絡建議使用 2-4 線程和 1MB 段落大小</div>
+        <div>• 移動網絡建議啟用省電模式</div>
+    `;
+
+    tipsArea.appendChild(tipsContent);    performanceMonitorArea.appendChild(monitorTitle);
+    performanceMonitorArea.appendChild(monitorGrid);
+    performanceMonitorArea.appendChild(tipsArea);
+      contentArea.appendChild(performanceMonitorArea);
     contentArea.appendChild(statsArea);
+    
+    // 在這裡我們需要稍後添加 multiThreadRow 和 advancedSettingsArea
+    // 它們將在定義後被添加
     
     // 組裝面板
     preloadPanel.appendChild(headerBar);
@@ -1200,8 +1441,7 @@ function createPreloadControlPanel(controlBar, preloader) {
         preloader.setConfig({ videoDuration: value });
         console.log('[預加載設置] 視頻預加載時長:', value + '秒');
     });
-    
-    // 音頻預加載設置事件
+      // 音頻預加載設置事件
     audioEnabledCheckbox.addEventListener('change', (e) => {
         preloader.setConfig({ audioEnabled: e.target.checked });
         console.log('[預加載設置] 音頻預加載:', e.target.checked ? '啟用' : '停用');
@@ -1213,10 +1453,562 @@ function createPreloadControlPanel(controlBar, preloader) {
         preloader.setConfig({ audioDuration: value });
         console.log('[預加載設置] 音頻預加載時長:', value + '秒');
     });
+
+    // 多線程下載控制
+    const multiThreadRow = document.createElement('div');
+    multiThreadRow.style.cssText = `
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 16px;
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px dashed #d9d9d9;
+    `;
+
+    // 視頻多線程控制
+    const videoMultiThreadCol = document.createElement('div');
+    const videoMultiThreadTitle = document.createElement('h5');
+    videoMultiThreadTitle.textContent = '視頻多線程下載';
+    videoMultiThreadTitle.style.cssText = `
+        margin: 0 0 8px 0;
+        color: #1890ff;
+        font-size: 13px;
+        font-weight: bold;
+    `;
+
+    const videoMultiThreadEnabled = document.createElement('label');
+    videoMultiThreadEnabled.style.cssText = `
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        font-size: 12px;
+        margin-bottom: 6px;
+    `;
     
-    // 定期更新統計信息
+    const videoMultiThreadCheckbox = document.createElement('input');
+    videoMultiThreadCheckbox.type = 'checkbox';
+    videoMultiThreadCheckbox.checked = preloader.config.video.useMultiThread;
+    videoMultiThreadCheckbox.style.marginRight = '6px';
+    
+    videoMultiThreadEnabled.appendChild(videoMultiThreadCheckbox);
+    videoMultiThreadEnabled.appendChild(document.createTextNode('啟用多線程'));
+
+    const videoConcurrentRow = document.createElement('div');
+    videoConcurrentRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+    `;
+    
+    const videoConcurrentLabel = document.createElement('span');
+    videoConcurrentLabel.textContent = '並發數:';
+    videoConcurrentLabel.style.minWidth = '45px';
+    
+    const videoConcurrentSlider = document.createElement('input');
+    videoConcurrentSlider.type = 'range';
+    videoConcurrentSlider.min = '1';
+    videoConcurrentSlider.max = '8';
+    videoConcurrentSlider.value = preloader.config.video.maxConcurrentDownloads;
+    videoConcurrentSlider.style.flex = '1';
+    
+    const videoConcurrentValue = document.createElement('span');
+    videoConcurrentValue.textContent = preloader.config.video.maxConcurrentDownloads;
+    videoConcurrentValue.style.cssText = `
+        min-width: 20px;
+        color: #1890ff;
+        font-weight: bold;
+    `;
+
+    videoConcurrentRow.appendChild(videoConcurrentLabel);
+    videoConcurrentRow.appendChild(videoConcurrentSlider);
+    videoConcurrentRow.appendChild(videoConcurrentValue);
+
+    videoMultiThreadCol.appendChild(videoMultiThreadTitle);
+    videoMultiThreadCol.appendChild(videoMultiThreadEnabled);
+    videoMultiThreadCol.appendChild(videoConcurrentRow);
+
+    // 音頻多線程控制
+    const audioMultiThreadCol = document.createElement('div');
+    const audioMultiThreadTitle = document.createElement('h5');
+    audioMultiThreadTitle.textContent = '音頻多線程下載';
+    audioMultiThreadTitle.style.cssText = `
+        margin: 0 0 8px 0;
+        color: #52c41a;
+        font-size: 13px;
+        font-weight: bold;
+    `;
+
+    const audioMultiThreadEnabled = document.createElement('label');
+    audioMultiThreadEnabled.style.cssText = `
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        font-size: 12px;
+        margin-bottom: 6px;
+    `;
+    
+    const audioMultiThreadCheckbox = document.createElement('input');
+    audioMultiThreadCheckbox.type = 'checkbox';
+    audioMultiThreadCheckbox.checked = preloader.config.audio.useMultiThread;
+    audioMultiThreadCheckbox.style.marginRight = '6px';
+    
+    audioMultiThreadEnabled.appendChild(audioMultiThreadCheckbox);
+    audioMultiThreadEnabled.appendChild(document.createTextNode('啟用多線程'));
+
+    const audioConcurrentRow = document.createElement('div');
+    audioConcurrentRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+    `;
+    
+    const audioConcurrentLabel = document.createElement('span');
+    audioConcurrentLabel.textContent = '並發數:';
+    audioConcurrentLabel.style.minWidth = '45px';
+      const audioConcurrentSlider = document.createElement('input');
+    audioConcurrentSlider.type = 'range';
+    audioConcurrentSlider.min = '1';
+    audioConcurrentSlider.max = '8'; // 提高音頻並發數上限到8
+    audioConcurrentSlider.value = preloader.config.audio.maxConcurrentDownloads;
+    audioConcurrentSlider.style.flex = '1';
+    
+    const audioConcurrentValue = document.createElement('span');
+    audioConcurrentValue.textContent = preloader.config.audio.maxConcurrentDownloads;
+    audioConcurrentValue.style.cssText = `
+        min-width: 20px;
+        color: #52c41a;
+        font-weight: bold;
+    `;
+
+    audioConcurrentRow.appendChild(audioConcurrentLabel);
+    audioConcurrentRow.appendChild(audioConcurrentSlider);
+    audioConcurrentRow.appendChild(audioConcurrentValue);
+
+    audioMultiThreadCol.appendChild(audioMultiThreadTitle);
+    audioMultiThreadCol.appendChild(audioMultiThreadEnabled);
+    audioMultiThreadCol.appendChild(audioConcurrentRow);    multiThreadRow.appendChild(videoMultiThreadCol);
+    multiThreadRow.appendChild(audioMultiThreadCol);
+
+    // 高級線程設置區域
+    const advancedSettingsArea = document.createElement('div');
+    advancedSettingsArea.style.cssText = `
+        margin-top: 16px;
+        padding: 12px;
+        background: #fff;
+        border-radius: 4px;
+        border: 1px solid #e1e3e6;
+    `;
+
+    const advancedTitle = document.createElement('h4');
+    advancedTitle.textContent = '高級線程設置';
+    advancedTitle.style.cssText = `
+        margin: 0 0 12px 0;
+        color: #722ed1;
+        font-size: 14px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+
+    const advancedToggleIcon = document.createElement('span');
+    advancedToggleIcon.textContent = '▼';
+    advancedToggleIcon.style.cssText = `
+        font-size: 12px;
+        color: #666;
+        transition: transform 0.2s;
+        cursor: pointer;
+    `;
+
+    advancedTitle.appendChild(advancedToggleIcon);
+
+    const advancedContent = document.createElement('div');
+    advancedContent.style.cssText = `
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        transition: all 0.3s ease;
+    `;
+
+    // 性能配置區域
+    const performanceCol = document.createElement('div');
+    performanceCol.style.cssText = `
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #e9ecef;
+    `;
+
+    const performanceTitle = document.createElement('h5');
+    performanceTitle.textContent = '性能配置';
+    performanceTitle.style.cssText = `
+        margin: 0 0 12px 0;
+        color: #495057;
+        font-size: 13px;
+        font-weight: bold;
+    `;
+
+    // 段落大小設置
+    const segmentSizeRow = document.createElement('div');
+    segmentSizeRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+    `;
+
+    const segmentSizeLabel = document.createElement('span');
+    segmentSizeLabel.textContent = '段落大小:';
+    segmentSizeLabel.style.minWidth = '55px';
+
+    const segmentSizeSelect = document.createElement('select');
+    segmentSizeSelect.style.cssText = `
+        flex: 1;
+        padding: 2px 4px;
+        border: 1px solid #d9d9d9;
+        border-radius: 3px;
+        font-size: 12px;
+    `;
+
+    // 獲取當前段落大小設置
+    const currentSegmentSize = preloader.config.video.segmentSize || 2 * 1024 * 1024;
+    const segmentSizeOptions = [
+        { value: 512 * 1024, text: '512KB (慢速網絡)' },
+        { value: 1024 * 1024, text: '1MB (標準)' },
+        { value: 2 * 1024 * 1024, text: '2MB (推薦)' },
+        { value: 4 * 1024 * 1024, text: '4MB (高速網絡)' },
+        { value: 8 * 1024 * 1024, text: '8MB (極高速)' }
+    ];
+
+    segmentSizeOptions.forEach(option => {
+        const optionElement = document.createElement('option');
+        optionElement.value = option.value;
+        optionElement.textContent = option.text;
+        optionElement.selected = option.value === currentSegmentSize;
+        segmentSizeSelect.appendChild(optionElement);
+    });
+
+    segmentSizeRow.appendChild(segmentSizeLabel);
+    segmentSizeRow.appendChild(segmentSizeSelect);
+
+    // 線程池大小設置
+    const threadPoolRow = document.createElement('div');
+    threadPoolRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+    `;
+
+    const threadPoolLabel = document.createElement('span');
+    threadPoolLabel.textContent = '線程池:';
+    threadPoolLabel.style.minWidth = '55px';
+
+    const threadPoolSlider = document.createElement('input');
+    threadPoolSlider.type = 'range';
+    threadPoolSlider.min = '2';
+    threadPoolSlider.max = '16';
+    threadPoolSlider.value = Math.max(preloader.config.video.maxConcurrentDownloads, preloader.config.audio.maxConcurrentDownloads);
+    threadPoolSlider.style.flex = '1';
+
+    const threadPoolValue = document.createElement('span');
+    threadPoolValue.textContent = threadPoolSlider.value;
+    threadPoolValue.style.cssText = `
+        min-width: 20px;
+        color: #722ed1;
+        font-weight: bold;
+    `;
+
+    threadPoolRow.appendChild(threadPoolLabel);
+    threadPoolRow.appendChild(threadPoolSlider);
+    threadPoolRow.appendChild(threadPoolValue);
+
+    performanceCol.appendChild(performanceTitle);
+    performanceCol.appendChild(segmentSizeRow);
+    performanceCol.appendChild(threadPoolRow);
+
+    // 網絡配置區域
+    const networkCol = document.createElement('div');
+    networkCol.style.cssText = `
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #e9ecef;
+    `;
+
+    const networkTitle = document.createElement('h5');
+    networkTitle.textContent = '網絡配置';
+    networkTitle.style.cssText = `
+        margin: 0 0 12px 0;
+        color: #495057;
+        font-size: 13px;
+        font-weight: bold;
+    `;
+
+    // 超時時間設置
+    const timeoutRow = document.createElement('div');
+    timeoutRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+    `;
+
+    const timeoutLabel = document.createElement('span');
+    timeoutLabel.textContent = '超時時間:';
+    timeoutLabel.style.minWidth = '55px';
+
+    const timeoutSlider = document.createElement('input');
+    timeoutSlider.type = 'range';
+    timeoutSlider.min = '5';
+    timeoutSlider.max = '60';
+    timeoutSlider.value = '30'; // 默認30秒
+    timeoutSlider.style.flex = '1';
+
+    const timeoutValue = document.createElement('span');
+    timeoutValue.textContent = timeoutSlider.value + 's';
+    timeoutValue.style.cssText = `
+        min-width: 25px;
+        color: #fa8c16;
+        font-weight: bold;
+    `;
+
+    timeoutRow.appendChild(timeoutLabel);
+    timeoutRow.appendChild(timeoutSlider);
+    timeoutRow.appendChild(timeoutValue);
+
+    // 重試次數設置
+    const retryRow = document.createElement('div');
+    retryRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+    `;
+
+    const retryLabel = document.createElement('span');
+    retryLabel.textContent = '重試次數:';
+    retryLabel.style.minWidth = '55px';
+
+    const retrySlider = document.createElement('input');
+    retrySlider.type = 'range';
+    retrySlider.min = '0';
+    retrySlider.max = '5';
+    retrySlider.value = '3'; // 默認3次
+    retrySlider.style.flex = '1';
+
+    const retryValue = document.createElement('span');
+    retryValue.textContent = retrySlider.value + '次';
+    retryValue.style.cssText = `
+        min-width: 25px;
+        color: #52c41a;
+        font-weight: bold;
+    `;
+
+    retryRow.appendChild(retryLabel);
+    retryRow.appendChild(retrySlider);
+    retryRow.appendChild(retryValue);
+
+    networkCol.appendChild(networkTitle);
+    networkCol.appendChild(timeoutRow);
+    networkCol.appendChild(retryRow);
+
+    advancedContent.appendChild(performanceCol);
+    advancedContent.appendChild(networkCol);
+
+    // 預設配置區域
+    const presetsArea = document.createElement('div');
+    presetsArea.style.cssText = `
+        margin-top: 12px;
+        padding: 8px;
+        background: #fff7e6;
+        border-radius: 4px;
+        border: 1px solid #ffd591;
+    `;
+
+    const presetsTitle = document.createElement('div');
+    presetsTitle.textContent = '快速預設';
+    presetsTitle.style.cssText = `
+        margin-bottom: 8px;
+        color: #fa8c16;
+        font-size: 12px;
+        font-weight: bold;
+    `;
+
+    const presetsButtons = document.createElement('div');
+    presetsButtons.style.cssText = `
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    `;
+
+    const presets = [
+        { name: '省電模式', concurrent: 2, segmentSize: 512 * 1024, timeout: 20, retry: 2 },
+        { name: '標準模式', concurrent: 4, segmentSize: 2 * 1024 * 1024, timeout: 30, retry: 3 },
+        { name: '高速模式', concurrent: 8, segmentSize: 4 * 1024 * 1024, timeout: 15, retry: 1 },
+        { name: '極速模式', concurrent: 12, segmentSize: 8 * 1024 * 1024, timeout: 10, retry: 1 }
+    ];
+
+    presets.forEach(preset => {
+        const button = document.createElement('button');
+        button.textContent = preset.name;
+        button.style.cssText = `
+            padding: 4px 8px;
+            font-size: 11px;
+            border: 1px solid #ffa940;
+            border-radius: 3px;
+            background: #fff;
+            color: #fa8c16;
+            cursor: pointer;
+            transition: all 0.2s;
+        `;
+
+        button.addEventListener('mouseenter', () => {
+            button.style.background = '#ffa940';
+            button.style.color = '#fff';
+        });
+
+        button.addEventListener('mouseleave', () => {
+            button.style.background = '#fff';
+            button.style.color = '#fa8c16';
+        });
+
+        button.addEventListener('click', () => {
+            // 應用預設配置
+            videoConcurrentSlider.value = preset.concurrent;
+            videoConcurrentValue.textContent = preset.concurrent;
+            audioConcurrentSlider.value = preset.concurrent;
+            audioConcurrentValue.textContent = preset.concurrent;
+            threadPoolSlider.value = preset.concurrent;
+            threadPoolValue.textContent = preset.concurrent;
+            segmentSizeSelect.value = preset.segmentSize;
+            timeoutSlider.value = preset.timeout;
+            timeoutValue.textContent = preset.timeout + 's';
+            retrySlider.value = preset.retry;
+            retryValue.textContent = preset.retry + '次';
+
+            // 更新配置
+            preloader.setConfig({
+                videoMaxConcurrentDownloads: preset.concurrent,
+                audioMaxConcurrentDownloads: preset.concurrent,
+                videoSegmentSize: preset.segmentSize,
+                audioSegmentSize: preset.segmentSize
+            });
+
+            console.log(`[線程配置] 應用預設: ${preset.name}`);
+        });
+
+        presetsButtons.appendChild(button);
+    });
+
+    presetsArea.appendChild(presetsTitle);
+    presetsArea.appendChild(presetsButtons);
+
+    advancedContent.appendChild(presetsArea);
+
+    advancedSettingsArea.appendChild(advancedTitle);
+    advancedSettingsArea.appendChild(advancedContent);
+
+    // 高級設置折疊功能
+    let advancedCollapsed = true;
+    advancedContent.style.display = 'none';
+    advancedToggleIcon.style.transform = 'rotate(-90deg)';    advancedTitle.addEventListener('click', () => {
+        advancedCollapsed = !advancedCollapsed;
+        if (advancedCollapsed) {
+            advancedContent.style.display = 'none';
+            advancedToggleIcon.style.transform = 'rotate(-90deg)';
+        } else {
+            advancedContent.style.display = 'grid';
+            advancedToggleIcon.style.transform = 'rotate(0deg)';
+        }
+    });
+
+    // 將多線程和高級設置區域添加到內容區域
+    contentArea.appendChild(multiThreadRow);
+    contentArea.appendChild(advancedSettingsArea);
+
+    // 多線程事件處理
+    videoMultiThreadCheckbox.addEventListener('change', (e) => {
+        preloader.setConfig({ videoUseMultiThread: e.target.checked });
+        console.log('[預加載設置] 視頻多線程下載:', e.target.checked ? '啟用' : '停用');
+    });
+
+    videoConcurrentSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        videoConcurrentValue.textContent = value;
+        preloader.setConfig({ videoMaxConcurrentDownloads: value });
+        console.log('[預加載設置] 視頻並發下載數:', value);
+    });
+
+    audioMultiThreadCheckbox.addEventListener('change', (e) => {
+        preloader.setConfig({ audioUseMultiThread: e.target.checked });
+        console.log('[預加載設置] 音頻多線程下載:', e.target.checked ? '啟用' : '停用');
+    });
+
+    audioConcurrentSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        audioConcurrentValue.textContent = value;
+        preloader.setConfig({ audioMaxConcurrentDownloads: value });
+        console.log('[預加載設置] 音頻並發下載數:', value);
+    });
+
+    // 高級設置事件處理
+    segmentSizeSelect.addEventListener('change', (e) => {
+        const value = parseInt(e.target.value);
+        preloader.setConfig({
+            videoSegmentSize: value,
+            audioSegmentSize: value
+        });
+        console.log('[線程配置] 段落大小:', formatBytes(value));
+    });
+
+    threadPoolSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        threadPoolValue.textContent = value;
+        
+        // 同步更新並發數設置
+        videoConcurrentSlider.value = value;
+        videoConcurrentValue.textContent = value;
+        audioConcurrentSlider.value = value;
+        audioConcurrentValue.textContent = value;
+        
+        preloader.setConfig({
+            videoMaxConcurrentDownloads: value,
+            audioMaxConcurrentDownloads: value
+        });
+        console.log('[線程配置] 線程池大小:', value);
+    });
+
+    timeoutSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        timeoutValue.textContent = value + 's';
+        preloader.setConfig({
+            timeout: value * 1000
+        });
+        console.log('[線程配置] 超時時間:', value + '秒');
+    });
+
+    retrySlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        retryValue.textContent = value + '次';
+        preloader.setConfig({
+            retryAttempts: value
+        });
+        console.log('[線程配置] 重試次數:', value + '次');
+    });
+      // 定期更新統計信息
     const updateStats = () => {
         const stats = preloader.getStats();
+        
+        // 更新基本統計信息
         statsContent.innerHTML = `
             <div>
                 <div style="margin-bottom: 6px;"><strong>視頻預加載:</strong></div>
@@ -1233,13 +2025,143 @@ function createPreloadControlPanel(controlBar, preloader) {
                 <div style="color: #666;">總請求: ${stats.audio.totalRequests}</div>
             </div>
         `;
+
+        // 更新性能監控數據
+        updatePerformanceMonitor(stats);
     };
-    
-    // 初始更新統計信息
+
+    // 性能監控更新函數
+    const updatePerformanceMonitor = (stats) => {
+        // 計算總下載速度 (視頻 + 音頻)
+        const videoSpeed = stats.video.avgDownloadSpeed || 0;
+        const audioSpeed = stats.audio.avgDownloadSpeed || 0;
+        const totalSpeed = videoSpeed + audioSpeed;
+
+        const speedElement = document.getElementById('thread-download-speed');
+        if (speedElement) {
+            speedElement.textContent = (totalSpeed / (1024 * 1024)).toFixed(1) + ' MB/s';
+            // 根據速度設置顏色
+            if (totalSpeed > 5 * 1024 * 1024) { // > 5MB/s
+                speedElement.style.color = '#52c41a';
+            } else if (totalSpeed > 2 * 1024 * 1024) { // > 2MB/s
+                speedElement.style.color = '#1890ff';
+            } else if (totalSpeed > 0.5 * 1024 * 1024) { // > 0.5MB/s
+                speedElement.style.color = '#fa8c16';
+            } else {
+                speedElement.style.color = '#ff4d4f';
+            }
+        }
+
+        // 計算活躍線程數
+        const videoThreads = preloader.config.video.useMultiThread ? preloader.config.video.maxConcurrentDownloads : 0;
+        const audioThreads = preloader.config.audio.useMultiThread ? preloader.config.audio.maxConcurrentDownloads : 0;
+        const maxThreads = Math.max(videoThreads, audioThreads);
+        
+        // 模擬活躍線程計算（基於下載速度）
+        const estimatedActiveThreads = totalSpeed > 0 ? Math.min(maxThreads, Math.ceil(totalSpeed / (1024 * 1024))) : 0;
+
+        const threadsElement = document.getElementById('active-threads');
+        if (threadsElement) {
+            threadsElement.textContent = `${estimatedActiveThreads}/${maxThreads}`;
+            threadsElement.style.color = estimatedActiveThreads > maxThreads * 0.7 ? '#52c41a' : '#1890ff';
+        }
+
+        // 計算緩存效率
+        const totalRequests = stats.video.totalRequests + stats.audio.totalRequests;
+        const totalCacheHits = stats.video.cacheHits + stats.audio.cacheHits;
+        const efficiency = totalRequests > 0 ? ((totalCacheHits / totalRequests) * 100) : 0;
+
+        const efficiencyElement = document.getElementById('cache-efficiency');
+        if (efficiencyElement) {
+            efficiencyElement.textContent = efficiency.toFixed(1) + '%';
+            // 根據效率設置顏色
+            if (efficiency > 80) {
+                efficiencyElement.style.color = '#52c41a';
+            } else if (efficiency > 60) {
+                efficiencyElement.style.color = '#1890ff';
+            } else if (efficiency > 40) {
+                efficiencyElement.style.color = '#fa8c16';
+            } else {
+                efficiencyElement.style.color = '#ff4d4f';
+            }
+        }
+
+        // 動態更新性能提示
+        const tipsElement = document.getElementById('performance-tips');
+        if (tipsElement && totalSpeed > 0) {
+            let tips = '<div style="margin-bottom: 2px;">💡 <strong>性能提示:</strong></div>';
+            
+            if (totalSpeed < 1024 * 1024) { // < 1MB/s
+                tips += '<div>⚠️ 下載速度較慢，建議降低並發數或段落大小</div>';
+                tips += '<div>🔧 可嘗試切換到省電模式或標準模式</div>';
+            } else if (totalSpeed > 10 * 1024 * 1024) { // > 10MB/s
+                tips += '<div>🚀 網絡條件優秀，可考慮使用極速模式</div>';
+                tips += '<div>⚡ 建議增加線程數和段落大小以充分利用帶寬</div>';
+            } else {
+                tips += '<div>✅ 網絡狀況良好，當前配置合適</div>';
+                tips += '<div>📊 如需更高速度可嘗試高速模式</div>';
+            }
+
+            if (efficiency < 50) {
+                tips += '<div>🎯 緩存命中率較低，建議增加預加載時長</div>';
+            }
+
+            tipsElement.innerHTML = tips;
+        }
+    };
+      // 初始更新統計信息
     updateStats();
     
-    // 每2秒更新一次統計信息
-    const statsInterval = setInterval(updateStats, 2000);
+    // 每1秒更新一次統計信息和性能監控
+    const statsInterval = setInterval(updateStats, 1000);
+    
+    // 保存配置到本地存儲的函數
+    const saveAdvancedConfig = () => {
+        try {
+            const advancedConfig = {
+                segmentSize: parseInt(segmentSizeSelect.value),
+                timeout: parseInt(timeoutSlider.value) * 1000,
+                retryAttempts: parseInt(retrySlider.value),
+                threadPoolSize: parseInt(threadPoolSlider.value),
+                lastUpdated: Date.now()
+            };
+            localStorage.setItem('bilibili-thread-advanced-config', JSON.stringify(advancedConfig));
+            console.log('[線程配置] 高級配置已保存');
+        } catch (e) {
+            console.warn('[線程配置] 高級配置保存失敗:', e);
+        }
+    };
+
+    // 加載保存的高級配置
+    const loadAdvancedConfig = () => {
+        try {
+            const saved = localStorage.getItem('bilibili-thread-advanced-config');
+            if (saved) {
+                const config = JSON.parse(saved);
+                segmentSizeSelect.value = config.segmentSize || 2 * 1024 * 1024;
+                timeoutSlider.value = (config.timeout || 30000) / 1000;
+                timeoutValue.textContent = timeoutSlider.value + 's';
+                retrySlider.value = config.retryAttempts || 3;
+                retryValue.textContent = retrySlider.value + '次';
+                threadPoolSlider.value = config.threadPoolSize || 8;
+                threadPoolValue.textContent = threadPoolSlider.value;
+                
+                console.log('[線程配置] 高級配置已加載');
+            }
+        } catch (e) {
+            console.warn('[線程配置] 高級配置加載失敗:', e);
+        }
+    };
+
+    // 加載保存的配置
+    loadAdvancedConfig();
+
+    // 添加配置保存到所有高級設置的事件處理器
+    const advancedInputs = [segmentSizeSelect, timeoutSlider, retrySlider, threadPoolSlider];
+    advancedInputs.forEach(input => {
+        input.addEventListener('change', saveAdvancedConfig);
+        input.addEventListener('input', saveAdvancedConfig);
+    });
     
     // 將面板添加到控制欄
     controlBar.appendChild(preloadPanel);

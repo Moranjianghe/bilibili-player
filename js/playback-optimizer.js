@@ -115,8 +115,7 @@ class PlaybackOptimizer {
             audio.crossOrigin = this.config.player.crossOrigin;
         }
     }
-    
-    /**
+      /**
      * 設置事件監聽器
      */
     setupEventListeners() {
@@ -124,24 +123,38 @@ class PlaybackOptimizer {
         const audio = this.state.audioElement;
         
         if (video) {
+            // 保存事件處理函數引用以便後續移除
+            this.videoWaitingHandler = () => this.onStallStart();
+            this.videoPlayingHandler = () => this.onStallEnd();
+            this.videoCanPlayHandler = () => this.onCanPlay();
+            this.videoCanPlayThroughHandler = () => this.onCanPlayThrough();
+            this.videoProgressHandler = () => this.updateBufferHealth();
+            this.videoTimeUpdateHandler = () => this.monitorPlayback();
+            this.videoErrorHandler = (e) => this.handlePlaybackError(e);
+            this.videoStalledHandler = () => this.handleStall();
+            
             // 卡頓檢測
-            video.addEventListener('waiting', () => this.onStallStart());
-            video.addEventListener('playing', () => this.onStallEnd());
-            video.addEventListener('canplay', () => this.onCanPlay());
-            video.addEventListener('canplaythrough', () => this.onCanPlayThrough());
+            video.addEventListener('waiting', this.videoWaitingHandler);
+            video.addEventListener('playing', this.videoPlayingHandler);
+            video.addEventListener('canplay', this.videoCanPlayHandler);
+            video.addEventListener('canplaythrough', this.videoCanPlayThroughHandler);
             
             // 緩衝監控
-            video.addEventListener('progress', () => this.updateBufferHealth());
-            video.addEventListener('timeupdate', () => this.monitorPlayback());
+            video.addEventListener('progress', this.videoProgressHandler);
+            video.addEventListener('timeupdate', this.videoTimeUpdateHandler);
             
             // 錯誤處理
-            video.addEventListener('error', (e) => this.handlePlaybackError(e));
-            video.addEventListener('stalled', () => this.handleStall());
+            video.addEventListener('error', this.videoErrorHandler);
+            video.addEventListener('stalled', this.videoStalledHandler);
         }
         
         if (audio) {
-            audio.addEventListener('waiting', () => this.onAudioStall());
-            audio.addEventListener('error', (e) => this.handleAudioError(e));
+            // 保存音頻事件處理函數引用
+            this.audioWaitingHandler = () => this.onAudioStall();
+            this.audioErrorHandler = (e) => this.handleAudioError(e);
+            
+            audio.addEventListener('waiting', this.audioWaitingHandler);
+            audio.addEventListener('error', this.audioErrorHandler);
         }
     }
     
@@ -443,14 +456,83 @@ class PlaybackOptimizer {
             qualityChanges: this.stats.qualityChanges,
             currentConfig: { ...this.config }
         };
-    }
-    
-    /**
+    }    /**
      * 停止優化器
      */
     stop() {
-        // 清理事件監聽器和定時器
-        console.log('[播放優化器] 已停止');
+        // 清理事件監聽器
+        const video = this.state.videoElement;
+        const audio = this.state.audioElement;
+        
+        if (video) {
+            // 移除視頻事件監聽器
+            if (this.videoWaitingHandler) {
+                video.removeEventListener('waiting', this.videoWaitingHandler);
+            }
+            if (this.videoPlayingHandler) {
+                video.removeEventListener('playing', this.videoPlayingHandler);
+            }
+            if (this.videoCanPlayHandler) {
+                video.removeEventListener('canplay', this.videoCanPlayHandler);
+            }
+            if (this.videoCanPlayThroughHandler) {
+                video.removeEventListener('canplaythrough', this.videoCanPlayThroughHandler);
+            }
+            if (this.videoProgressHandler) {
+                video.removeEventListener('progress', this.videoProgressHandler);
+            }
+            if (this.videoTimeUpdateHandler) {
+                video.removeEventListener('timeupdate', this.videoTimeUpdateHandler);
+            }
+            if (this.videoErrorHandler) {
+                video.removeEventListener('error', this.videoErrorHandler);
+            }
+            if (this.videoStalledHandler) {
+                video.removeEventListener('stalled', this.videoStalledHandler);
+            }
+        }
+        
+        if (audio) {
+            if (this.audioWaitingHandler) {
+                audio.removeEventListener('waiting', this.audioWaitingHandler);
+            }
+            if (this.audioErrorHandler) {
+                audio.removeEventListener('error', this.audioErrorHandler);
+            }
+        }
+        
+        // 清理事件處理器引用
+        this.videoWaitingHandler = null;
+        this.videoPlayingHandler = null;
+        this.videoCanPlayHandler = null;
+        this.videoCanPlayThroughHandler = null;
+        this.videoProgressHandler = null;
+        this.videoTimeUpdateHandler = null;
+        this.videoErrorHandler = null;
+        this.videoStalledHandler = null;
+        this.audioWaitingHandler = null;
+        this.audioErrorHandler = null;
+        
+        // 清理狀態
+        this.state.videoElement = null;
+        this.state.audioElement = null;
+        this.state.networkSpeed = 0;
+        this.state.currentQuality = null;
+        this.state.bufferHealth = 0;
+        this.state.stallCount = 0;
+        this.state.lastStallTime = 0;
+        this.state.isOptimizing = false;
+        
+        // 重置統計
+        this.stats = {
+            stallEvents: 0,
+            totalStallTime: 0,
+            avgNetworkSpeed: 0,
+            bufferEvents: 0,
+            qualityChanges: 0
+        };
+        
+        console.log('[播放優化器] 已停止並清理所有狀態');
     }
 }
 

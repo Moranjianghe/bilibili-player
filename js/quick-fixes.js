@@ -28,10 +28,14 @@ class QuickFixes {
                 enableHTTP2: true,
                 enableCompression: true,
                 maxConnections: 6
-            }
-        };
+            }        };
         
         this.isApplied = false;
+        
+        // 存儲事件監聽器引用以便清理
+        this.globalEventHandlers = [];
+        this.mediaElementHandlers = new WeakMap();
+        this.networkChangeHandler = null;
     }
     
     /**
@@ -194,12 +198,16 @@ class QuickFixes {
             this.optimizeMediaElement(element);
         });
     }
-    
-    /**
+      /**
      * 優化單個媒體元素
      * @param {HTMLMediaElement} element 
      */
     optimizeMediaElement(element) {
+        // 檢查是否已經優化過，避免重複添加監聽器
+        if (element.dataset.quickFixesOptimized) {
+            return;
+        }
+        
         // 設置優化屬性
         element.preload = 'auto';
         element.crossOrigin = 'anonymous';
@@ -217,9 +225,22 @@ class QuickFixes {
             }
         }
         
+        // 創建事件處理器並保存引用
+        const errorHandler = () => this.handleMediaError(element);
+        const stalledHandler = () => this.handleMediaStall(element);
+        
         // 添加錯誤恢復
-        element.addEventListener('error', () => this.handleMediaError(element));
-        element.addEventListener('stalled', () => this.handleMediaStall(element));
+        element.addEventListener('error', errorHandler);
+        element.addEventListener('stalled', stalledHandler);
+        
+        // 使用 WeakMap 保存監聽器引用以便清理
+        this.mediaElementHandlers.set(element, {
+            errorHandler,
+            stalledHandler
+        });
+        
+        // 標記為已優化
+        element.dataset.quickFixesOptimized = 'true';
     }
     
     /**
@@ -266,10 +287,9 @@ class QuickFixes {
                 }
             }, 30000);
         }
-        
-        // 監控網絡狀態
-        if ('connection' in navigator) {
-            navigator.connection.addEventListener('change', () => {
+          // 監控網絡狀態
+        if ('connection' in navigator && !this.networkChangeHandler) {
+            this.networkChangeHandler = () => {
                 const connection = navigator.connection;
                 console.log('[快速修復] 網絡狀態變化:', {
                     effectiveType: connection.effectiveType,
@@ -279,7 +299,9 @@ class QuickFixes {
                 if (connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g') {
                     this.enableLowBandwidthMode();
                 }
-            });
+            };
+            
+            navigator.connection.addEventListener('change', this.networkChangeHandler);
         }
     }
     
@@ -321,26 +343,39 @@ class QuickFixes {
             element.preload = 'metadata';
         });
     }
-    
-    /**
+      /**
      * 設置錯誤重試機制
      */
     setupErrorRetry() {
+        // 避免重複添加監聽器
+        if (this.globalEventHandlers.some(h => h.target === window && h.event === 'error')) {
+            return;
+        }
+        
         // 全局錯誤處理
-        window.addEventListener('error', (event) => {
+        const errorHandler = (event) => {
             if (event.target && (event.target.tagName === 'VIDEO' || event.target.tagName === 'AUDIO')) {
                 this.retryMediaLoad(event.target);
             }
-        });
+        };
         
         // 未捕獲的 Promise 錯誤
-        window.addEventListener('unhandledrejection', (event) => {
+        const rejectionHandler = (event) => {
             if (event.reason && event.reason.message && 
                 event.reason.message.includes('media')) {
                 console.warn('[快速修復] 媒體相關的 Promise 錯誤:', event.reason);
                 event.preventDefault();
             }
-        });
+        };
+        
+        window.addEventListener('error', errorHandler);
+        window.addEventListener('unhandledrejection', rejectionHandler);
+        
+        // 保存監聽器引用以便清理
+        this.globalEventHandlers.push(
+            { target: window, event: 'error', handler: errorHandler },
+            { target: window, event: 'unhandledrejection', handler: rejectionHandler }
+        );
     }
     
     /**
@@ -388,6 +423,50 @@ class QuickFixes {
                 } : 'N/A'
             }
         };
+    }
+      /**
+     * 清理所有事件監聽器和資源
+     */
+    destroy() {
+        // 移除全局事件監聽器
+        this.globalEventHandlers.forEach(({ target, event, handler }) => {
+            target.removeEventListener(event, handler);
+        });
+        this.globalEventHandlers = [];
+        
+        // 移除網絡狀態監聽器
+        if (this.networkChangeHandler && 'connection' in navigator) {
+            navigator.connection.removeEventListener('change', this.networkChangeHandler);
+            this.networkChangeHandler = null;
+        }
+        
+        // 移除媒體元素監聽器
+        this.cleanupMediaElementListeners();
+        
+        // WeakMap 會自動清理，但我們重置它
+        this.mediaElementHandlers = new WeakMap();
+        
+        this.isApplied = false;
+        console.log('[快速修復] 所有監聽器已清理');
+    }
+    
+    /**
+     * 清理媒體元素監聽器
+     */
+    cleanupMediaElementListeners() {
+        // 查找所有已優化的媒體元素並移除監聽器
+        document.querySelectorAll('video[data-quick-fixes-optimized], audio[data-quick-fixes-optimized]').forEach(element => {
+            const handlers = this.mediaElementHandlers.get(element);
+            if (handlers) {
+                element.removeEventListener('error', handlers.errorHandler);
+                element.removeEventListener('stalled', handlers.stalledHandler);
+                
+                // 移除優化標記
+                delete element.dataset.quickFixesOptimized;
+            }
+        });
+        
+        console.log('[快速修復] 已清理所有媒體元素監聽器');
     }
 }
 
