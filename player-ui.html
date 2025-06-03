@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哔哩哔哩精簡播放器介面</title>
+    <style>
+        :root {
+            --primary-color: #00a1d6;
+            --success-color: #52c41a;
+            --warning-color: #fa8c16;
+            --danger-color: #f5222d;
+            --text-color: #333;
+            --text-secondary: #666;
+            --border-color: #e3e5e7;
+            --bg-color: #f8f9fa;
+            --header-bg: #e8e9ea;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', '微軟雅黑', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: var(--text-color);
+            background-color: #f6f7f8;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* 播放器容器 */
+        .bilibili-lite-player {
+            width: 100%;
+            height: 0;
+            padding-bottom: 56.25%; /* 16:9 比例 */
+            position: relative;
+            background-color: #000;
+            margin-bottom: 16px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .player-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 控制欄 */
+        .lite-controlbar {
+            margin: 16px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background-color: white;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+        }
+
+        .control-group span {
+            color: #888;
+            margin-right: 8px;
+            font-size: 14px;
+        }
+
+        /* 選擇器樣式 */
+        select {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            background-color: white;
+            font-size: 14px;
+            color: var(--text-color);
+            margin-right: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        select:hover {
+            border-color: var(--primary-color);
+        }
+
+        select:focus {
+            border-color: var(--primary-color);
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+        }
+
+        /* 可折疊面板 */
+        .collapsible-panel {
+            margin-top: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: var(--bg-color);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 10px 12px;
+            background-color: var(--header-bg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .panel-title {
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .panel-toggle {
+            transition: transform 0.2s;
+        }
+
+        .panel-content {
+            padding: 16px;
+            display: block;
+            transition: all 0.3s ease;
+        }
+
+        /* 信息網格 */
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .info-column {
+            padding: 16px;
+            background-color: #fff;
+            border-radius: 4px;
+            border: 1px solid #e1e3e6;
+        }
+
+        .info-title {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .video-title {
+            color: var(--primary-color);
+        }
+
+        .audio-title {
+            color: var(--success-color);
+        }
+
+        .stats-title {
+            color: #722ed1;
+        }
+
+        /* 加載動畫 */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 6px solid #fff;
+            border-top: 6px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="bilibili-lite-player">
+            <div class="player-inner" id="bilibili-lite-player">
+                <!-- 播放器內容將由 JavaScript 動態生成 -->
+                <div class="loading-indicator">
+                    <div class="loading-spinner"></div>
+                    <div style="margin-top: 10px;">載入中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lite-controlbar" id="bilibili-lite-controlbar">
+            <!-- 畫質和音質控制區 -->
+            <div class="control-row">
+                <!-- 畫質選擇 -->
+                <div class="control-group">
+                    <span>畫質</span>
+                    <select id="quality-selector"  title="畫質選擇">
+                        <option value="116">1080P 60幀</option>
+                        <option value="80">1080P</option>
+                        <option value="64">720P</option>
+                        <option value="32">480P</option>
+                        <option value="16">360P</option>
+                        <option value="0">僅播放聲音</option>
+                    </select>
+                    <div id="format-status" style="font-size: 12px; color: #888; margin-left: 12px;">
+                        格式: DASH，編碼: 自動（請點插件圖標設定）
+                    </div>
+                </div>
+
+                <!-- 音質選擇 -->
+                <div class="control-group">
+                    <label for="audio-quality-selector" style="margin-right:8px;">音質</label>
+                    <select id="audio-quality-selector" title="音質">
+                        <option value="30280">Hi-Res</option>
+                        <option value="30232">Dolby Atmos</option>
+                        <option value="30216">高音質</option>
+                        <option value="30232">標準音質</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 流資訊面板 -->
+            <div class="collapsible-panel" id="stream-info-panel">
+                <div class="panel-header">
+                    <span class="panel-title">流資訊詳情</span>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content">
+                    <div class="info-grid">
+                        <!-- 視頻資訊 -->
+                        <div class="info-column">
+                            <h4 class="info-title video-title">視頻流資訊</h4>
+                            <div id="video-details" class="info-details">
+                                <div style="color: #999;">無詳細視頻流資訊</div>
+                            </div>
+                        </div>
+
+                        <!-- 音頻資訊 -->
+                        <div class="info-column">
+                            <h4 class="info-title audio-title">音頻流資訊</h4>
+                            <div id="audio-details" class="info-details">
+                                <div style="color: #999;">無詳細音頻流資訊</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 下載統計 -->
+                    <div class="info-column" style="margin-top: 16px;">
+                        <h4 class="info-title stats-title">下載統計</h4>
+                        <div id="stats-details" class="info-details" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div style="color: #999;">流監控不可用</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 摺疊/展開功能
+        document.addEventListener('DOMContentLoaded', function() {
+            const panels = document.querySelectorAll('.collapsible-panel');
+            
+            panels.forEach(panel => {
+                const header = panel.querySelector('.panel-header');
+                const content = panel.querySelector('.panel-content');
+                const toggle = panel.querySelector('.panel-toggle');
+                const title = panel.querySelector('.panel-title');
+                
+                let isCollapsed = false;
+                
+                header.addEventListener('click', () => {
+                    isCollapsed = !isCollapsed;
+                    if (isCollapsed) {
+                        content.style.display = 'none';
+                        toggle.style.transform = 'rotate(-90deg)';
+                        
+                        // 更新標題文字
+                        if (panel.id === 'stream-info-panel') {
+                            title.textContent = '流資訊詳情 (已摺疊)';
+                        }
+                    } else {
+                        content.style.display = 'block';
+                        toggle.style.transform = 'rotate(0deg)';
+                        
+                        // 恢復標題文字
+                        if (panel.id === 'stream-info-panel') {
+                            title.textContent = '流資訊詳情';
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

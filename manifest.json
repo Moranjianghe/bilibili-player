@@ -10,7 +10,7 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.bilibili.com/*"],
+      "matches": ["https://www.bilibili.com/video/BV*"],
       "js": ["js/content.js"],
       "run_at": "document_idle",
       "type": "module"

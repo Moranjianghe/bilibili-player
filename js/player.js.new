@@ -2,8 +2,7 @@
 // player.js - 處理播放器的實現和相關功能
 import { qualityMap, audioQualityMap, cdnOptimizer } from './api.js';
 import { StreamMonitor, formatBytes, formatBitrate } from './utils.js';
-// 只導入需要的基本 UI 函數，其他函數將透過動態導入使用
-import { createPlayerElements, showCDNSwitchingIndicator, showPlayerError } from './player-ui.js';
+import { createControlBar, createStreamInfoPanel, createPreloadControlPanel, createPlayerElements, showCDNSwitchingIndicator, showPlayerError } from './player-ui.js';
 
 let streamMonitor = null;
 let playbackOptimizer = null;
@@ -140,7 +139,10 @@ function replacePlayer(playInfo, mainReload) {
 
     if (!newPlayer) {
         // 首次創建 - 查找原始播放器容器
-        const oldPlayer = document.querySelector('#playerWrap');
+        const oldPlayer = document.getElementById('bilibili-player') ||
+            document.querySelector('.bpx-player-container') ||
+            document.querySelector('.player-wrap') ||
+            document.querySelector('#playerWrap');
 
         console.log('[LitePlayer] 找到的舊播放器元素:', oldPlayer);
 
@@ -167,15 +169,6 @@ function replacePlayer(playInfo, mainReload) {
         newPlayer.style.backgroundColor = '#000';
         parent.appendChild(newPlayer);
 
-        const viewboxReport = document.getElementById('viewbox_report');
-        if (viewboxReport && viewboxReport.parentNode) {
-            viewboxReport.parentNode.insertBefore(newPlayer, viewboxReport.nextSibling);
-        }
-        else {
-            console.warn('[LitePlayer] 未找到 viewbox_report，無法插入播放器');
-            return;
-        }
-
         console.log('[LitePlayer] 創建新播放器容器完成');
     } else {
         // 畫質切換 - 記錄這是替換操作
@@ -189,7 +182,7 @@ function replacePlayer(playInfo, mainReload) {
         const video = playerElements.video;
         const audio = playerElements.audio;
         const loading = playerElements.loading;
-
+        
         // 控制同步
         function syncAudio() {
             const diff = video.currentTime - audio.currentTime;
@@ -208,10 +201,6 @@ function replacePlayer(playInfo, mainReload) {
             if (audio.volume !== video.volume) audio.volume = video.volume;
             if (audio.muted !== video.muted) audio.muted = video.muted;
         }
-        // 视频進度改變時同步音頻進度
-        function handleSeeked() {
-            audio.currentTime = video.currentTime;
-        }
 
         // 使用跟蹤式事件監聽器添加，防止內存洩漏
         const playHandler = () => { audio.play(); };
@@ -226,8 +215,7 @@ function replacePlayer(playInfo, mainReload) {
         addTrackedEventListener(video, 'ratechange', rateChangeHandler, 'video');
         addTrackedEventListener(video, 'volumechange', volumeChangeHandler, 'video');
         addTrackedEventListener(video, 'timeupdate', syncAudio, 'video');
-        addTrackedEventListener(video, 'seeked', handleSeeked, 'video');
-
+        
         // 保存同步處理器引用以便清理
         playerEventHandlers.syncHandlers.push(syncAudio, playHandler, pauseHandler, seekingHandler, rateChangeHandler, volumeChangeHandler);
 
@@ -266,7 +254,7 @@ function replacePlayer(playInfo, mainReload) {
         addTrackedEventListener(audio, 'canplay', checkBuffering, 'audio');
         addTrackedEventListener(video, 'canplaythrough', checkBuffering, 'video');
         addTrackedEventListener(audio, 'canplaythrough', checkBuffering, 'audio');
-
+        
         // 保存緩衝處理器引用
         playerEventHandlers.syncHandlers.push(setLoading, checkBuffering);
 
@@ -276,48 +264,34 @@ function replacePlayer(playInfo, mainReload) {
         // 插入
         newPlayer.appendChild(video);
         newPlayer.appendChild(audio);
-
+        
         // 啟動流監控
         if (streamMonitor) {
             streamMonitor.stopMonitoring();
         }
+        
         streamMonitor = new StreamMonitor();
         streamMonitor.startMonitoring(video, audio);
-
+        
         // 啟動播放優化器
 
-        // 首先創建控制欄結構
-        const arcToolbar = document.getElementById('arc_toolbar_report');
-        // 查找控制欄的容器，優先使用 arc_toolbar_report，若不存在則使用播放器的父元素
-        const controlContainer = arcToolbar || newPlayer.parentElement;
-
-        if (controlContainer) {
-            // 動態創建控制欄結構
-            import('./player-ui.js').then(UI => {
-                const controlBar = UI.createControlBarStructure(newPlayer); // 將控制欄結構插入到播放器容器中
-
-                // 使用獨立的UI模組創建控制區
-                UI.createControlBar(playInfo, mainReload, streamMonitor);
-
-                // 使用獨立的UI模組創建流信息面板
-                UI.createStreamInfoPanel(controlBar, playInfo, streamMonitor);
-            });
-        } else {
-            console.warn('[LitePlayer] 無法找到控制欄容器');
+        // 使用獨立的UI模組創建控制區
+        createControlBar(playInfo, mainReload, streamMonitor);
+        
+        // 使用獨立的UI模組創建流信息面板
+        const controlBar = document.getElementById('bilibili-lite-controlbar');
+        if (controlBar) {
+            createStreamInfoPanel(controlBar, playInfo, streamMonitor);
         }
+        
         // 如果有预加载器，则创建控制面板
         if (window.preloader) {
-            import('./player-ui.js').then(UI => {
-                const controlBar = document.getElementById('bilibili-lite-controlbar');
-                if (controlBar) {
-                    UI.createPreloadControlPanel(controlBar, window.preloader);
-                }
-            });
+            createPreloadControlPanel(controlBar, window.preloader);
         }
 
-        console.log('[LitePlayer] 已插入雙流同步播放器', {
-            videoSrc: video.src,
-            audioSrc: audio.src
+        console.log('[LitePlayer] 已插入雙流同步播放器', { 
+            videoSrc: video.src, 
+            audioSrc: audio.src 
         });
     }
 
