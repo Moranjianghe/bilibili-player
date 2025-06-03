@@ -1,7 +1,6 @@
 // player.js - 處理播放器的實現和相關功能
 import { qualityMap, audioQualityMap, cdnOptimizer } from './api.js';
 import { StreamMonitor, formatBytes, formatBitrate } from './utils.js';
-import { CDNOptimizer } from './cdn.js';
 
 let streamMonitor = null;
 let playbackOptimizer = null;

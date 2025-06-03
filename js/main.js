@@ -2,7 +2,6 @@
 import { getBvId, fetchCid, fetchPlayUrl } from './api.js';
 import { replacePlayer } from './player.js';
 import { observeBVChange, hijackBVLinks } from './utils.js';
-import { CDNOptimizer } from './cdn.js';
 
 // 當前播放配置
 let currentQn = 80; // 預設 1080P
