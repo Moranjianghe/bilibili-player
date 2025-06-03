@@ -1,6 +1,6 @@
 // filepath: d:\code\bilibili-player\js\player.js
 // player.js - 處理播放器的實現和相關功能
-import { qualityMap, audioQualityMap, cdnOptimizer } from './api.js';
+import {cdnOptimizer } from './api.js';
 import { StreamMonitor, formatBytes, formatBitrate } from './utils.js';
 // 只導入需要的基本 UI 函數，其他函數將透過動態導入使用
 import { createPlayerElements, showCDNSwitchingIndicator, showPlayerError } from './player-ui.js';
@@ -190,47 +190,38 @@ function replacePlayer(playInfo, mainReload) {
         const audio = playerElements.audio;
         const loading = playerElements.loading;
 
-        // 控制同步
+
+
+
+        //當視頻播放時，觸發音頻的播放，確保音頻和視頻同步開始。
+        const playHandler = () => { audio.play(); };
+        // 當視頻暫停時，觸發音頻的暫停
+        const pauseHandler = () => { audio.pause(); };
+        // 當視頻進度條拖動時，同步音頻的當前時間
+        const seekingHandler = () => { audio.currentTime = video.currentTime; };
+        // 當視頻倍速改變時，同步音頻的播放速率
+        const rateChangeHandler = () => { audio.playbackRate = video.playbackRate; };
+        
+        // 同步音頻和視頻的播放狀態
         function syncAudio() {
             const diff = video.currentTime - audio.currentTime;
-            // 允許 0.2 秒以內的誤差
             if (Math.abs(diff) > 0.2) {
-                // 僅在視頻播放時同步，暫停時不動
                 if (!video.paused && !audio.seeking && !video.seeking) {
-                    // 避免頻繁設置 currentTime，僅當差距較大時強制同步
                     audio.currentTime = video.currentTime;
-                    // 若音頻暫停則自動播放
                     if (audio.paused) audio.play();
                 }
             }
-            // 音量、倍速等同步
             if (audio.playbackRate !== video.playbackRate) audio.playbackRate = video.playbackRate;
             if (audio.volume !== video.volume) audio.volume = video.volume;
             if (audio.muted !== video.muted) audio.muted = video.muted;
         }
-        // 视频進度改變時同步音頻進度
-        function handleSeeked() {
-            audio.currentTime = video.currentTime;
-        }
-
-        // 使用跟蹤式事件監聽器添加，防止內存洩漏
-        const playHandler = () => { audio.play(); };
-        const pauseHandler = () => { audio.pause(); };
-        const seekingHandler = () => { audio.currentTime = video.currentTime; };
-        const rateChangeHandler = () => { audio.playbackRate = video.playbackRate; };
-        const volumeChangeHandler = () => { audio.volume = video.volume; audio.muted = video.muted; };
-
-        addTrackedEventListener(video, 'play', playHandler, 'video');
-        addTrackedEventListener(video, 'pause', pauseHandler, 'video');
-        addTrackedEventListener(video, 'seeking', seekingHandler, 'video');
-        addTrackedEventListener(video, 'ratechange', rateChangeHandler, 'video');
-        addTrackedEventListener(video, 'volumechange', volumeChangeHandler, 'video');
-        addTrackedEventListener(video, 'timeupdate', syncAudio, 'video');
-        addTrackedEventListener(video, 'seeked', handleSeeked, 'video');
-
-        // 保存同步處理器引用以便清理
-        playerEventHandlers.syncHandlers.push(syncAudio, playHandler, pauseHandler, seekingHandler, rateChangeHandler, volumeChangeHandler);
-
+        
+        // 添加事件監聽器
+        video.addEventListener('play', playHandler);
+        video.addEventListener('pause', pauseHandler);
+        video.addEventListener('seeking', seekingHandler);
+        video.addEventListener('ratechange', rateChangeHandler);
+        video.addEventListener('timeupdate', syncAudio);
         // loading 檢查
         function setLoading(show) {
             loading.style.display = show ? 'flex' : 'none';
